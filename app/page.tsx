@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { DEFAULT_OLLAMA_MODEL, OLLAMA_MODELS, type OllamaModel } from "@/lib/ollama-models";
 
 type ManualTest = {
   goal: string;
@@ -40,6 +41,8 @@ type AnalysisResult = {
 export default function Home() {
   const [idea, setIdea] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [selectedModel, setSelectedModel] = useState<OllamaModel>(DEFAULT_OLLAMA_MODEL);
+  const [analyzedModel, setAnalyzedModel] = useState<OllamaModel | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -92,12 +95,14 @@ export default function Home() {
   async function handleAnalyze() {
     setError("");
     setResult(null);
+    setAnalyzedModel(null);
     if (!idea.trim()) {
       setError("Please enter a business idea before analyzing.");
       return;
     }
 
     setIsLoading(true);
+    const requestedModel = selectedModel;
 
     try {
       const response = await fetch("/api/analyze", {
@@ -105,7 +110,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ idea: idea.trim() }),
+        body: JSON.stringify({ idea: idea.trim(), model: requestedModel }),
       });
 
       const data = await response.json();
@@ -115,7 +120,8 @@ export default function Home() {
       }
 
       setResult(data);
-    } catch (fetchError) {
+      setAnalyzedModel(requestedModel);
+    } catch {
       setError("Unable to connect to the analysis service. Check your network or make sure Ollama is running.");
     } finally {
       setIsLoading(false);
@@ -148,14 +154,34 @@ export default function Home() {
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={handleAnalyze}
-            disabled={isLoading}
-            className="mt-6 inline-flex items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-          >
-            {isLoading ? "Analyzing..." : "Analyze"}
-          </button>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div>
+              <label htmlFor="model" className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Ollama model
+              </label>
+              <select
+                id="model"
+                value={selectedModel}
+                onChange={(event) => setSelectedModel(event.target.value as OllamaModel)}
+                disabled={isLoading}
+                className="mt-2 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-100"
+              >
+                {OLLAMA_MODELS.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={handleAnalyze}
+              disabled={isLoading}
+              className="inline-flex items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
+              {isLoading ? "Analyzing..." : "Analyze"}
+            </button>
+          </div>
         </div>
 
         {result ? (
@@ -165,6 +191,11 @@ export default function Home() {
               <h2 className="mt-3 max-w-3xl text-2xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-3xl">
                 {result.ideaSummary}
               </h2>
+              {analyzedModel ? (
+                <p className="mt-3 text-xs text-slate-500">
+                  Analyzed with: <span className="font-medium text-slate-600">{analyzedModel}</span>
+                </p>
+              ) : null}
 
               <div className="mt-7 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6">
                 <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">

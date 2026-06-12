@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
+import { isOllamaModel, OLLAMA_MODELS } from "@/lib/ollama-models";
 
 async function readFounderProfile() {
   const filePath = path.join(process.cwd(), "founder-profile.md");
@@ -21,30 +22,41 @@ function extractJson(raw: string) {
   }
 
   const text = raw.slice(first, last + 1);
-  return JSON.parse(text);
+  const parsed: unknown = JSON.parse(text);
+  if (!isRecord(parsed)) {
+    throw new Error("AI response JSON was not an object.");
+  }
+  return parsed;
 }
 
-function normalizeAssistantContent(choice: any): string {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function contentItemText(item: unknown): string {
+  if (typeof item === "string") return item;
+  if (!isRecord(item)) return "";
+  return typeof item.text === "string" ? item.text : "";
+}
+
+function normalizeAssistantContent(choice: unknown): string {
   if (!choice) return "";
   if (typeof choice === "string") return choice;
+  if (!isRecord(choice)) return "";
   if (typeof choice.content === "string") return choice.content;
   if (typeof choice.output === "string") return choice.output;
   if (Array.isArray(choice.content)) {
-    return choice.content
-      .map((item: any) => (typeof item === "string" ? item : item?.text ?? ""))
-      .join("");
+    return choice.content.map(contentItemText).join("");
   }
   if (Array.isArray(choice.output)) {
-    return choice.output
-      .map((item: any) => (typeof item === "string" ? item : item?.text ?? ""))
-      .join("");
+    return choice.output.map(contentItemText).join("");
   }
   if (choice.message) return normalizeAssistantContent(choice.message);
   return "";
 }
 
 export async function POST(req: NextRequest) {
-  let body: { idea?: unknown } = {};
+  let body: { idea?: unknown; model?: unknown } = {};
 
   try {
     body = await req.json();
@@ -58,6 +70,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Business idea is required." }, { status: 400 });
   }
 
+  if (!isOllamaModel(body.model)) {
+    return NextResponse.json(
+      { error: `Invalid model. Choose one of: ${OLLAMA_MODELS.join(", ")}.` },
+      { status: 400 }
+    );
+  }
+
+  const model = body.model;
   const founderProfile = await readFounderProfile();
   const founderProfileSection = founderProfile
     ? `Founder profile:\n${founderProfile}`
@@ -70,7 +90,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "qwen3:8b",
+        model,
         stream: false,
         temperature: 0.2,
         max_tokens: 800,
@@ -94,11 +114,15 @@ ${founderProfileSection}`,
 
     if (!response.ok) {
       const errorText = await response.text();
+      const isModelUnavailable =
+        response.status === 404 ||
+        /model.*(?:not found|does not exist|unavailable)|(?:not found|pull).*model/i.test(errorText);
+
       return NextResponse.json(
         {
-          error:
-            errorText ||
-            `Ollama returned an unexpected status: ${response.status}`,
+          error: isModelUnavailable
+            ? "Ollama could not run this model. Check that it is installed and that Ollama is running."
+            : errorText || `Ollama returned an unexpected status: ${response.status}`,
         },
         { status: response.status }
       );
@@ -114,8 +138,8 @@ ${founderProfileSection}`,
     let assistantText = "";
     if (typeof rawResponse === "string") {
       assistantText = rawResponse;
-    } else if (typeof rawResponse === "object" && rawResponse !== null) {
-      const data = rawResponse as any;
+    } else if (isRecord(rawResponse)) {
+      const data = rawResponse;
       const firstChoice = Array.isArray(data.choices) ? data.choices[0] : data;
       assistantText = normalizeAssistantContent(firstChoice) || normalizeAssistantContent(data);
     }
@@ -124,7 +148,7 @@ ${founderProfileSection}`,
       throw new Error("Ollama returned an empty assistant response.");
     }
 
-    let parsed: any;
+    let parsed: Record<string, unknown>;
     try {
       parsed = extractJson(assistantText);
     } catch (parseError) {
@@ -156,7 +180,7 @@ ${founderProfileSection}`,
         };
       }
 
-      const test = value as any;
+      const test = value as Record<string, unknown>;
       return {
         goal: String(test.goal ?? ""),
         steps: normalizeArrayField(test.steps),
