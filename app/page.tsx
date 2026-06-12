@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AnalysisLoader } from "@/components/AnalysisLoader";
 import { DEFAULT_OLLAMA_MODEL, OLLAMA_MODELS, type OllamaModel } from "@/lib/ollama-models";
 
 type ManualTest = {
@@ -183,6 +184,8 @@ export default function Home() {
             </button>
           </div>
         </div>
+
+        {isLoading ? <AnalysisLoader /> : null}
 
         {result ? (
           <section className="space-y-6 pb-12">
