@@ -7,6 +7,27 @@ export type ManualTest = {
   costEstimate: string;
 };
 
+export type PaymentValidation = {
+  goal: string;
+  offer: string;
+  steps: string[];
+  decisionRule: string;
+  constraints: string[];
+  timeRequired: string;
+  costEstimate: string;
+};
+
+export type AfterFirstPayment = {
+  deliverManually: string;
+  learnFromCustomers: string;
+  repeatBeforeScaling: string;
+};
+
+export type KeyUnknown = {
+  unknown: string;
+  howToResolve: string;
+};
+
 export type PerformanceMetrics = {
   model: string;
   requestStartedAt: string;
@@ -140,9 +161,16 @@ export type AnalysisResponse = {
   mostDangerousAssumption: string;
   whyThisMightFail: string[];
   whatNotToBuildYet: string[];
+  paymentValidation: PaymentValidation;
+  afterFirstPayment: AfterFirstPayment;
+  keyUnknowns: KeyUnknown[];
+  /** @deprecated Remove after legacy saved analysis runs no longer need compatibility. */
   manualValidationTest: ManualTest;
+  /** @deprecated Replaced by keyUnknowns. */
   questionsToAskUsers: string[];
+  /** @deprecated Replaced by keyUnknowns. */
   evidenceNeededBeforeBuilding: string[];
+  /** @deprecated The paymentValidation section is the immediate next action. */
   recommendedNextAction: string;
   recommendedStrategy: RecommendedStrategy;
   recommendedStrategyLabel: string;

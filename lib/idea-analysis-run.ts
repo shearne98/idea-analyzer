@@ -15,7 +15,7 @@ import type { AnalysisResponse, AnalyzeResponse } from "@/lib/analysis-types";
 import type { OllamaModel } from "@/lib/ollama-models";
 
 const OLLAMA_URL = "http://localhost:11434/api/chat";
-const ANALYSIS_VERSION = "idea-analysis-v2-measurable-validation";
+const ANALYSIS_VERSION = "idea-analysis-v4-payment-first";
 const OLLAMA_TEMPERATURE = 0;
 const OLLAMA_SEED = 42;
 let cachedCodeVersion: string | null = null;
@@ -412,132 +412,101 @@ function isScoreArea(value: unknown): value is ScoreArea {
 function normalizeScoreImprovementRecommendations(value: unknown) {
   if (!Array.isArray(value)) return [];
 
+  const seenAreas = new Set<ScoreArea>();
   return value
     .filter(isRecord)
     .filter((item) => isScoreArea(item.scoreArea))
     .map((item) => ({
-      scoreArea: item.scoreArea,
+      scoreArea: item.scoreArea as ScoreArea,
       currentIssue: String(item.currentIssue ?? "").trim(),
       recommendation: String(item.recommendation ?? "").trim(),
       whyItCouldImproveTheScore: String(item.whyItCouldImproveTheScore ?? "").trim(),
       evidenceToCollect: String(item.evidenceToCollect ?? "").trim(),
     }))
     .filter((item) => item.recommendation && item.evidenceToCollect)
+    .filter((item) => {
+      if (seenAreas.has(item.scoreArea)) return false;
+      seenAreas.add(item.scoreArea);
+      return true;
+    })
     .slice(0, 4);
 }
 
-const VAGUE_VALIDATION_LANGUAGE =
-  /\b(express(?:es|ed)? interest|would pay|would use|like(?:s|d)? (?:it|the idea)|users? engage|low interest|good feedback)\b/i;
-const MEASURABLE_THRESHOLD = /\d|€|\$|£|%|\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\b/i;
-const BEHAVIOR_SIGNAL =
-  /\b(open|watch|reply|share|request|ask|pay|paid|deposit|pre-?order|commit|introduce|refer|use|return|book|buy|purchase|sign up|send)\w*/i;
-const HYPOTHETICAL_QUESTION = /\bwould you\b|\bhow much would\b|\bdo you think\b/i;
+function normalizePaymentValidation(parsed: Record<string, unknown>) {
+  const value = isRecord(parsed.paymentValidation) ? parsed.paymentValidation : {};
+  const legacy = isRecord(parsed.manualValidationTest) ? parsed.manualValidationTest : {};
+  const decisionRule = String(
+    value.decisionRule ?? normalizeArrayField(legacy.successCriteria)[0] ?? ""
+  ).trim();
+  const requiresFinancialCommitment =
+    /\b(pay|paid|payment|deposit|purchase order|signed paid pilot|binding financial commitment)\b/i.test(
+      decisionRule
+    );
 
-function criteriaAreMeasurable(criteria: string[]) {
-  return criteria.every(
-    (criterion) =>
-      MEASURABLE_THRESHOLD.test(criterion) && !VAGUE_VALIDATION_LANGUAGE.test(criterion)
-  );
+  return {
+    goal:
+      String(value.goal ?? legacy.goal ?? "").trim() ||
+      "Test whether a target customer will make a real financial commitment to the offer.",
+    offer:
+      String(value.offer ?? "").trim() ||
+      "Offer the First Testable Version to a specific target customer at a clearly stated price.",
+    steps: normalizeArrayField(value.steps ?? legacy.steps).slice(0, 7),
+    decisionRule: requiresFinancialCommitment
+      ? decisionRule
+      : "Progress only after at least one target customer pays, places a deposit, or makes an equivalent binding financial commitment within 7 days.",
+    constraints: normalizeArrayField(value.constraints ?? legacy.failureCriteria).slice(0, 3),
+    timeRequired: String(value.timeRequired ?? legacy.timeRequired ?? "").trim() || "7 days",
+    costEstimate: String(value.costEstimate ?? legacy.costEstimate ?? "").trim() || "€0-€50",
+  };
 }
 
-function validationOutputNeedsRepair(parsed: Record<string, unknown>) {
-  const test = isRecord(parsed.manualValidationTest) ? parsed.manualValidationTest : {};
-  const steps = normalizeArrayField(test.steps);
-  const successCriteria = normalizeArrayField(test.successCriteria);
-  const failureCriteria = normalizeArrayField(test.failureCriteria);
-  const questions = normalizeArrayField(parsed.questionsToAskUsers);
-  const recommendedNextAction = String(parsed.recommendedNextAction ?? "").trim();
-  return (
-    steps.length < 4 ||
-    successCriteria.length < 3 ||
-    failureCriteria.length < 3 ||
-    !criteriaAreMeasurable(successCriteria) ||
-    !criteriaAreMeasurable(failureCriteria) ||
-    !String(test.timeRequired ?? "").trim() ||
-    !String(test.costEstimate ?? "").trim() ||
-    recommendedNextAction.length < 40 ||
-    /\b(talk to users|conduct a validation test|build an mvp)\b/i.test(recommendedNextAction) ||
-    questions.length < 3 ||
-    questions.some((question) => !BEHAVIOR_SIGNAL.test(question))
-  );
+function normalizeAfterFirstPayment(parsed: Record<string, unknown>) {
+  const value = isRecord(parsed.afterFirstPayment) ? parsed.afterFirstPayment : {};
+  return {
+    deliverManually:
+      String(value.deliverManually ?? "").trim() ||
+      "Fulfil the promise manually for the first paying customer using existing tools.",
+    learnFromCustomers:
+      String(value.learnFromCustomers ?? "").trim() ||
+      "Observe what the customer values, what confuses them, and what would make the offer easier to buy again.",
+    repeatBeforeScaling:
+      String(value.repeatBeforeScaling ?? "").trim() ||
+      "Repeat the paid sale and manual delivery before systematizing or building a full product.",
+  };
 }
 
-function removeHypotheticalValidationLanguage(value: string) {
-  return value
-    .replace(/\bor express(?:es|ed)? interest in\b/gi, "or request")
-    .replace(/\bexpress(?:es|ed)? interest in\b/gi, "request")
-    .replace(/\bsay(?:s)? (?:that )?they would pay for\b/gi, "pay for or place a deposit on")
-    .replace(/\bexpress(?:es|ed)? willingness to pay for\b/gi, "pay for or place a deposit on")
-    .replace(/\bwould pay for\b/gi, "pay for or place a deposit on")
-    .replace(/\bwould use\b/gi, "use");
-}
-
-function enforceValidationOutputQuality(parsed: Record<string, unknown>) {
-  const test = isRecord(parsed.manualValidationTest) ? parsed.manualValidationTest : {};
-  const cleanedSuccess = normalizeArrayField(test.successCriteria).map(
-    removeHypotheticalValidationLanguage
-  );
-  const cleanedFailure = normalizeArrayField(test.failureCriteria).map(
-    removeHypotheticalValidationLanguage
-  );
-
-  test.successCriteria = criteriaAreMeasurable(cleanedSuccess)
-    ? cleanedSuccess
-    : [
-        "At least 8 of 12 recruited target users open or use the delivered test within 48 hours.",
-        "At least 4 of 12 request another result, share it, or introduce another target user within 7 days.",
-        "At least 2 of 12 pay or place a deposit at the stated test price before receiving another result.",
-      ];
-  test.failureCriteria = criteriaAreMeasurable(cleanedFailure)
-    ? cleanedFailure
-    : [
-        "Fewer than 3 of 12 recruited target users open or use the delivered test within 48 hours.",
-        "Nobody requests another result, shares it, or introduces another target user within 7 days.",
-        "Nobody pays or places a deposit at the stated test price during the 7-day test.",
-        "Manual delivery takes more than 3 hours per result and cannot be repeated at the test price.",
-      ];
-  test.timeRequired = String(test.timeRequired ?? "").trim() || "6-10 hours across 7 days";
-  test.costEstimate = String(test.costEstimate ?? "").trim() || "€0-€50";
-  parsed.manualValidationTest = test;
-
-  const questions = normalizeArrayField(parsed.questionsToAskUsers);
-  parsed.questionsToAskUsers =
-    questions.length >= 3 &&
-    questions.every(
-      (question) =>
-        BEHAVIOR_SIGNAL.test(question) &&
-        !VAGUE_VALIDATION_LANGUAGE.test(question) &&
-        !HYPOTHETICAL_QUESTION.test(question)
+function normalizeKeyUnknowns(parsed: Record<string, unknown>) {
+  const value = Array.isArray(parsed.keyUnknowns) ? parsed.keyUnknowns : [];
+  const normalized = value
+    .filter(isRecord)
+    .map((item) => ({
+      unknown: String(item.unknown ?? "").trim(),
+      howToResolve: String(item.howToResolve ?? "").trim(),
+    }))
+    .filter((item) => item.unknown && item.howToResolve)
+    .filter(
+      (item) =>
+        !/\b(founder'?s? ability to build|commercial potential is not well established)\b/i.test(
+          item.unknown
+        )
     )
-      ? questions
-      : [
-          "When did you last experience this problem, and what did you do to solve it?",
-          "What workaround have you used in the past 30 days, and how much time or money did it cost?",
-          "Have you paid for an alternative in the past 12 months? What did you buy and how much did you pay?",
-          "Will you place a small deposit today to receive the next result from this test?",
-        ];
+    .map((item) => ({
+      ...item,
+      howToResolve: /\b(conduct market research|conduct surveys?|build a prototype)\b/i.test(
+        item.howToResolve
+      )
+        ? "Resolve this by observing payment behavior and asking the paying customer during manual delivery."
+        : item.howToResolve,
+    }))
+    .slice(0, 5);
 
-  const recommendedNextAction = removeHypotheticalValidationLanguage(
-    String(parsed.recommendedNextAction ?? "").trim()
-  );
-  parsed.recommendedNextAction =
-    recommendedNextAction ||
-    "Recruit 12 target users this week, manually deliver the First Testable Version using existing tools, send it directly, and track opens, repeat requests, referrals, and payments or deposits for a second result.";
-}
+  if (normalized.length > 0) return normalized;
 
-function mergeValidationRepair(
-  parsed: Record<string, unknown>,
-  repair: Record<string, unknown>
-) {
-  if (isRecord(repair.manualValidationTest)) {
-    parsed.manualValidationTest = repair.manualValidationTest;
-  }
-  if (normalizeArrayField(repair.questionsToAskUsers).length > 0) {
-    parsed.questionsToAskUsers = repair.questionsToAskUsers;
-  }
-  if (String(repair.recommendedNextAction ?? "").trim()) {
-    parsed.recommendedNextAction = repair.recommendedNextAction;
-  }
+  const questions = normalizeArrayField(parsed.questionsToAskUsers);
+  const evidence = normalizeArrayField(parsed.evidenceNeededBeforeBuilding);
+  return [...questions, ...evidence]
+    .slice(0, 5)
+    .map((item) => ({ unknown: item, howToResolve: "Resolve this during payment validation or manual delivery." }));
 }
 
 const SCORE_RECOMMENDATION_FALLBACKS: Record<
@@ -670,7 +639,7 @@ ${idea}`,
         },
         {
           role: "user",
-          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, smallestViableWedge, firstTestableVersion, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, scoreImprovementRecommendations, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, manualValidationTest, questionsToAskUsers, evidenceNeededBeforeBuilding, recommendedNextAction, recommendedStrategy, recommendedStrategyLabel, strategyReason.
+          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, smallestViableWedge, firstTestableVersion, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, scoreImprovementRecommendations, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, paymentValidation, afterFirstPayment, keyUnknowns, manualValidationTest, questionsToAskUsers, evidenceNeededBeforeBuilding, recommendedNextAction, recommendedStrategy, recommendedStrategyLabel, strategyReason.
 
 Each of founderFit, painOrDesire, mvpTestability, and commercialPotential must be an object with exactly:
 score: integer from 1 to 10
@@ -708,6 +677,8 @@ recommendation: a practical refinement, exploration, or validation action
 whyItCouldImproveTheScore: explain why the action could justify a higher score without promising it will
 evidenceToCollect: the concrete signal that would justify reassessment
 
+Return at most one recommendation for each scoreArea. Keep every field brief and avoid restating the same information across fields. This is retained for compatibility and is not displayed as a separate action section.
+
 firstTestableVersion means the simplest version that can be put in front of real users to test the core assumption. Keep smallestViableWedge for backward compatibility, but make firstTestableVersion more concrete.
 
 recommendedStrategy must be exactly one of:
@@ -723,30 +694,42 @@ Do not default every idea to test_manually_first. Recommend build_tiny_prototype
 
 Prefer conservative scores. If evidence is missing, say so clearly. Focus on the smallest useful version and separate future vision from MVP reality. Identify what not to build yet.
 
-The manualValidationTest object is mandatory and must contain exactly:
-- goal: one falsifiable core assumption the test evaluates
-- steps: 4 to 7 concrete actions in execution order
-- successCriteria: 3 to 5 measurable pass thresholds
-- failureCriteria: 3 to 5 measurable stop, change, or rethink thresholds
-- timeRequired: a specific estimate, such as "6-8 hours across 7 days"
-- costEstimate: a specific estimate or range, such as "€0-€30"
+paymentValidation is the single immediate next action and must contain exactly:
+- goal: the payment assumption being tested
+- offer: a concrete paid offer with a stated price or price range
+- steps: 4 to 7 concrete actions completed within 7 days
+- decisionRule: one measurable rule requiring at least one real payment; only when immediate payment is genuinely impractical may it require a deposit, signed paid pilot, purchase order, or equivalent binding financial commitment
+- constraints: 0 to 3 meaningful operational constraints that are not merely the inverse of the decision rule
+- timeRequired: a specific estimate
+- costEstimate: a specific estimate or range
 
-Validation-test quality rules:
-- Every success criterion and failure criterion must contain a number, percentage, price, time limit, or other objectively observable threshold.
-- Name the denominator or sample size where relevant, for example "at least 8 of 12 players", not "most players".
-- Prefer observed behavior over stated opinions: opens, replies, shares, requests, repeat use, introductions, deposits, pre-orders, or payments.
-- Do not use vague criteria such as "users engage", "users express interest", "users like it", "low interest", or "good feedback".
-- Include at least one criterion testing demand behavior and, when monetization is plausible, at least one criterion testing payment or pre-commitment.
-- Include an operational feasibility failure threshold when manual delivery effort is a material risk.
-- The steps must explain exactly who to recruit, what to offer, how to deliver it with existing tools, and what actions to track.
-- The test must be possible within 7 days using existing tools such as phone camera, Google Drive, WhatsApp, Google Forms, payment links, manual editing, spreadsheets, or direct outreach.
-- Do not recommend building software as the first validation test unless there is evidence of demand.
+Payment-validation rules:
+- Getting paid is the defining validation signal. Free engagement, verbal interest, survey answers, and hypothetical willingness to pay do not validate the idea.
+- Ask for payment before building a full product. Sell the promised outcome, then fulfil it manually or scrappily.
+- The offer, target buyer, price, outreach channel, and payment method must be concrete.
+- The steps must explain exactly who to approach, what to offer, how to ask for payment, and how to deliver after payment.
+- The decisionRule must state the number of paying customers or binding financial commitments required within 7 days.
+- Do not include inverse failure criteria. constraints are only for distinct limits such as manual fulfilment time, delivery cost, regulation, or safety.
 
-recommendedNextAction must describe one exact real-world experiment, including the immediate setting or audience, what to make or offer, the delivery channel, and the behaviors or payments to track. Do not return generic actions such as "talk to users", "conduct a validation test", or "build an MVP".
+afterFirstPayment must contain exactly:
+- deliverManually: how to fulfil the promise for the first paying customers without a full product
+- learnFromCustomers: what to learn from delivery, including what they valued, what confused them, what would make it a no-brainer, and whether they know others who would want it
+- repeatBeforeScaling: how to repeat the sale and what repeated-payment signal should exist before systematizing or scaling
 
-questionsToAskUsers must be behavior- or payment-based. Ask about recent real behavior, existing workarounds, prior spending, or request an immediate commitment at a stated price. Avoid generic opinion questions such as "Would you use this?", "Do you like this?", or "Is this useful?".
+keyUnknowns must contain 3 to 5 objects with exactly:
+- unknown: one critical missing piece of information that could change the offer or decision
+- howToResolve: the concise question, observation, or paid test that resolves it during payment validation or manual delivery
 
-Example of the required level of specificity: "At least 8 of 12 players open the footage link within 48 hours", "At least 4 request a clip", "At least 2 pay or place a €5 deposit before receiving future clips", and "Stop or change the offer if manual delivery takes more than 3 hours per game." Adapt thresholds to the idea rather than copying these numbers blindly.
+Key-unknown rules:
+- Include only unknowns that could change the buyer, offer, price, manual delivery, or decision to repeat the sale.
+- Resolve them through the paid offer or conversations and observations with paying customers.
+- Do not recommend generic market research, surveys, or building a prototype.
+- Do not include broad statements such as "commercial potential is unknown" or "founder ability to build is unknown".
+
+Legacy compatibility fields must still be returned for now:
+- manualValidationTest should mirror paymentValidation; successCriteria contains only decisionRule and failureCriteria contains only constraints
+- questionsToAskUsers and evidenceNeededBeforeBuilding should concisely mirror keyUnknowns
+- recommendedNextAction should concisely summarize paymentValidation
 
 Return only valid JSON. No markdown or commentary outside JSON.
 
@@ -769,59 +752,6 @@ ${founderProfileSection}`,
         `Unable to parse JSON from Ollama response: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response: ${analysisResult.assistantText.slice(0, 300)}`
       );
     }
-
-    if (validationOutputNeedsRepair(parsed)) {
-      const validationRepairResult = await callOllama(
-        model,
-        [
-          {
-            role: "system",
-            content:
-              "You are a rigorous experiment designer. Repair only the requested validation fields. Return valid JSON only. Use observable behavior and objective thresholds, never vague interest or hypothetical willingness.",
-          },
-          {
-            role: "user",
-            content: `Repair the validation plan for this business idea.
-
-Return JSON with exactly these fields: manualValidationTest, questionsToAskUsers, recommendedNextAction.
-
-manualValidationTest must contain exactly:
-- goal: one falsifiable assumption
-- steps: 4 to 7 concrete actions
-- successCriteria: 3 to 5 criteria, each with an objective numeric, price, percentage, or time threshold
-- failureCriteria: 3 to 5 criteria, each with an objective numeric, price, percentage, or time threshold
-- timeRequired: a specific estimate
-- costEstimate: a specific estimate or range
-
-Rules:
-- Use real behavior: opens, replies, shares, requests, payments, deposits, introductions, bookings, repeat use, or delivery time.
-- Never use "express interest", "would pay", "would use", "users engage", "users like it", or other opinion-only signals.
-- Include at least one demand-behavior threshold and one payment or pre-commitment threshold when monetization is plausible.
-- Include an operational feasibility failure threshold when manual delivery effort is a risk.
-- questionsToAskUsers must contain 3 to 6 behavior- or payment-based questions about recent actions, current workarounds, prior spending, or an immediate commitment at a stated price.
-- recommendedNextAction must describe one exact experiment: who to approach, what to make or offer, how to deliver it, and what behavior or payment to track.
-
-Business idea:
-${idea}
-
-Existing plan to repair:
-${JSON.stringify({
-  manualValidationTest: parsed.manualValidationTest,
-  questionsToAskUsers: parsed.questionsToAskUsers,
-  recommendedNextAction: parsed.recommendedNextAction,
-})}`,
-          },
-        ],
-        1400
-      );
-      recordOllamaMetrics(performanceAccumulator, validationRepairResult.metrics);
-      const validationRepair = timedExtractJson(
-        validationRepairResult.assistantText,
-        performanceAccumulator
-      );
-      mergeValidationRepair(parsed, validationRepair);
-    }
-    enforceValidationOutputQuality(parsed);
 
     const normalizeManualTest = (value: unknown) => {
       if (typeof value !== "object" || value === null) {
@@ -851,6 +781,23 @@ ${JSON.stringify({
     parsed.questionsToAskUsers = normalizeArrayField(parsed.questionsToAskUsers);
     parsed.evidenceNeededBeforeBuilding = normalizeArrayField(parsed.evidenceNeededBeforeBuilding);
     parsed.manualValidationTest = normalizeManualTest(parsed.manualValidationTest);
+    parsed.paymentValidation = normalizePaymentValidation(parsed);
+    parsed.afterFirstPayment = normalizeAfterFirstPayment(parsed);
+    parsed.keyUnknowns = normalizeKeyUnknowns(parsed);
+    const paymentValidation = parsed.paymentValidation as ReturnType<typeof normalizePaymentValidation>;
+    const keyUnknowns = parsed.keyUnknowns as ReturnType<typeof normalizeKeyUnknowns>;
+    // TODO: Remove these legacy compatibility fields after old saved analysis runs are retired.
+    parsed.manualValidationTest = {
+      goal: paymentValidation.goal,
+      steps: paymentValidation.steps,
+      successCriteria: [paymentValidation.decisionRule],
+      failureCriteria: paymentValidation.constraints,
+      timeRequired: paymentValidation.timeRequired,
+      costEstimate: paymentValidation.costEstimate,
+    };
+    parsed.questionsToAskUsers = keyUnknowns.map((item) => item.howToResolve);
+    parsed.evidenceNeededBeforeBuilding = keyUnknowns.map((item) => item.unknown);
+    parsed.recommendedNextAction = `${paymentValidation.offer} ${paymentValidation.decisionRule}`.trim();
     parsed.founderFit = normalizeScore(parsed.founderFit, parsed.founderFitScore, parsed.founderFitReason);
     parsed.painOrDesire = normalizeScore(parsed.painOrDesire, parsed.painOrDesireScore, parsed.painOrDesireReason);
     parsed.mvpTestability = normalizeScore(parsed.mvpTestability, parsed.mvpTestabilityScore, parsed.mvpTestabilityReason);

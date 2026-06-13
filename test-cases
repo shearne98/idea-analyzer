@@ -1,0 +1,49 @@
+Test Case 1.
+
+    Business Idea: AI-Powered Amateur Basketball Game Recorder and Highlight Platform
+
+    Problem:
+    Amateur basketball players often play pickup games, scrimmages, and small tournaments, but there is rarely good footage, player tracking, highlights, or performance history. Players would like to watch themselves play, share highlights, build reputation, compare performance, and get feedback, but most games disappear once they are over.
+
+    Target Customer:
+    Serious amateur basketball players, pickup basketball communities, small local leagues, tournament organizers, and coaches.
+
+    Proposed Solution:
+    A platform where local basketball games can be recorded, uploaded, tagged, watched, and turned into highlights or simple player profiles. Players can claim their profile, see games they played in, share clips, and eventually receive basic analytics or feedback.
+
+    MVP:
+    Start without drones or advanced AI. Record one real basketball run using a phone or tripod. Upload the footage manually. Create a simple game page with the full video, player names, manually clipped highlights, and a simple player leaderboard or notes. Share it with the players and see whether they watch, share, request clips, or say they would pay for it.
+
+    Future Vision:
+    Later, add AI-generated highlights, automated player tagging, stat tracking, shooting form feedback, city leaderboards, tournament pages, and eventually drone or fixed-camera recording setups.
+
+    Possible Monetization:
+    Players pay per highlight pack, organizers pay to record events, coaches pay for review tools, or communities pay a monthly subscription for recurring game coverage.
+
+    Key Concern:
+    The idea is exciting, but it may be operationally heavy, technically complex, and unclear whether players will pay. The first test should determine whether people actually care enough about footage and highlights to take action.
+
+Test Case 2.
+
+    Business Idea: Manual Compliance Deadline Service for Small Food Manufacturers
+
+    Problem:
+    Small food manufacturers must track retailer requirements, certification renewals, ingredient-document updates, and packaging compliance deadlines. Owners and operations managers often manage these obligations across spreadsheets, inboxes, and calendars. Missing a deadline can delay orders, damage retailer relationships, or create expensive rework.
+
+    Target Customer:
+    UK food manufacturers with 5-50 employees that sell through independent retailers or regional supermarket chains and do not have a dedicated compliance team.
+
+    Proposed Solution:
+    A managed compliance deadline service. The founder reviews the customer's existing documents and retailer requirements, creates a single deadline register, sends weekly reminders, and follows up on urgent actions. The first version is delivered manually using spreadsheets, email, and calendar reminders.
+
+    First Paid Offer:
+    Charge one manufacturer GBP 150 for a two-week compliance deadline audit and action plan. Ask for payment before reviewing their documents.
+
+    Future Vision:
+    Later, build software that imports documents, extracts renewal dates, assigns owners, and provides a shared compliance dashboard.
+
+    Possible Monetization:
+    A one-off audit fee followed by a monthly managed-service subscription.
+
+    Key Concern:
+    Manufacturers may agree that compliance tracking is painful but may not trust an external service with sensitive documents or consider the problem urgent enough to pay for.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnalysisLoader } from "@/components/AnalysisLoader";
 import { PerformanceDetails } from "@/components/PerformanceDetails";
 import { SavedAnalysisRuns, type SavedAnalysisRun } from "@/components/SavedAnalysisRuns";
@@ -11,6 +11,41 @@ import {
   type ClarificationResponse,
 } from "@/lib/analysis-types";
 import { DEFAULT_OLLAMA_MODEL, OLLAMA_MODELS, type OllamaModel } from "@/lib/ollama-models";
+import type { IdeaTestCase } from "@/lib/test-cases";
+
+// TODO: Remove after legacy saved analysis runs no longer need compatibility.
+function withPaymentFirstFields(response: AnalysisResponse): AnalysisResponse {
+  const legacy = response.manualValidationTest;
+  return {
+    ...response,
+    paymentValidation: response.paymentValidation ?? {
+      goal: legacy?.goal ?? "Test whether a target customer will make a financial commitment.",
+      offer: response.firstTestableVersion ?? "Offer the First Testable Version at a stated price.",
+      steps: legacy?.steps ?? [],
+      decisionRule:
+        legacy?.successCriteria?.[0] ??
+        "Progress only after at least one target customer pays or makes a binding financial commitment within 7 days.",
+      constraints: legacy?.failureCriteria ?? [],
+      timeRequired: legacy?.timeRequired ?? "7 days",
+      costEstimate: legacy?.costEstimate ?? "",
+    },
+    afterFirstPayment: response.afterFirstPayment ?? {
+      deliverManually: "Fulfil the promise manually for the first paying customer.",
+      learnFromCustomers: "Learn what they valued, what confused them, and what would make the offer easier to buy again.",
+      repeatBeforeScaling: "Repeat the paid sale before systematizing or building a full product.",
+    },
+    keyUnknowns:
+      response.keyUnknowns ??
+      [
+        ...(response.evidenceNeededBeforeBuilding ?? []).map((unknown, index) => ({
+          unknown,
+          howToResolve:
+            response.questionsToAskUsers?.[index] ??
+            "Resolve this during payment validation or manual delivery.",
+        })),
+      ].slice(0, 5),
+  };
+}
 
 export default function Home() {
   const [idea, setIdea] = useState("");
@@ -23,6 +58,32 @@ export default function Home() {
   const [analyzedWithDeepThinking, setAnalyzedWithDeepThinking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [testCases, setTestCases] = useState<IdeaTestCase[]>([]);
+  const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTestCases() {
+      try {
+        const response = await fetch("/api/test-cases");
+        if (!response.ok) return;
+        const value: unknown = await response.json();
+        if (!cancelled && Array.isArray(value)) {
+          const cases = value as IdeaTestCase[];
+          setTestCases(cases);
+          setSelectedTestCaseId(cases[0]?.id ?? "");
+        }
+      } catch {
+        // The idea input remains fully usable when the optional test-case file is unavailable.
+      }
+    }
+
+    void loadTestCases();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const formatList = (value: unknown): string[] => {
     if (Array.isArray(value)) return value.map((item) => String(item));
@@ -96,7 +157,7 @@ export default function Home() {
       if (data.status === "needs_clarification") {
         setClarification(data);
       } else {
-        setResult(data);
+        setResult(withPaymentFirstFields(data));
         setAnalyzedModel(requestedModel);
         setAnalyzedWithDeepThinking(requestedDeepThinking);
       }
@@ -110,6 +171,17 @@ export default function Home() {
   function handleAnalyze() {
     setAdditionalContext("");
     void analyzeIdea(idea);
+  }
+
+  function useSelectedTestCase() {
+    const testCase = testCases.find((item) => item.id === selectedTestCaseId);
+    if (!testCase) return;
+
+    setIdea(testCase.prompt);
+    setError("");
+    setResult(null);
+    setClarification(null);
+    setAdditionalContext("");
   }
 
   function handleAnalyzeWithContext() {
@@ -133,7 +205,7 @@ export default function Home() {
     setAnalyzedModel(run.response.runMetadata.model as OllamaModel);
     setAnalyzedWithDeepThinking(run.response.runMetadata.deepThinking);
     if (run.response.status === "analysis") {
-      setResult(run.response);
+      setResult(withPaymentFirstFields(run.response));
       setClarification(null);
     } else {
       setClarification(run.response);
@@ -153,7 +225,34 @@ export default function Home() {
             Paste your business idea and get a skeptical product strategist view with practical next steps.
           </p>
 
-          <label className="mt-8 block text-sm font-medium text-slate-700">Business idea</label>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <label className="block text-sm font-medium text-slate-700">Business idea</label>
+            {testCases.length > 0 ? (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <select
+                  aria-label="Select test case"
+                  value={selectedTestCaseId}
+                  onChange={(event) => setSelectedTestCaseId(event.target.value)}
+                  disabled={isLoading}
+                  className="max-w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-100 sm:max-w-80"
+                >
+                  {testCases.map((testCase) => (
+                    <option key={testCase.id} value={testCase.id}>
+                      {testCase.title}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={useSelectedTestCase}
+                  disabled={isLoading || !selectedTestCaseId}
+                  className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                >
+                  Use test case
+                </button>
+              </div>
+            ) : null}
+          </div>
           <textarea
             rows={8}
             value={idea}
@@ -339,37 +438,6 @@ export default function Home() {
               ) : null}
             </div>
 
-            {result.scoreImprovementRecommendations.length > 0 ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
-                <h2 className="text-lg font-semibold tracking-tight text-slate-950">How To Improve The Evidence</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Practical changes and validation work that could justify stronger scores.
-                </p>
-                <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  {result.scoreImprovementRecommendations.map((item, index) => (
-                    <div key={`${item.scoreArea}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{item.scoreArea}</p>
-                      <p className="mt-3 text-sm font-semibold leading-6 text-slate-900">{item.recommendation}</p>
-                      <dl className="mt-4 space-y-3 text-xs leading-5 text-slate-600">
-                        <div>
-                          <dt className="font-semibold text-slate-700">Current issue</dt>
-                          <dd className="mt-1">{item.currentIssue}</dd>
-                        </div>
-                        <div>
-                          <dt className="font-semibold text-slate-700">Why it could help</dt>
-                          <dd className="mt-1">{item.whyItCouldImproveTheScore}</dd>
-                        </div>
-                        <div>
-                          <dt className="font-semibold text-slate-700">Evidence to collect</dt>
-                          <dd className="mt-1">{item.evidenceToCollect}</dd>
-                        </div>
-                      </dl>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
             <div className="grid gap-5 sm:grid-cols-2">
               {hasContent(result.strongestVersion) ? (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
@@ -388,8 +456,10 @@ export default function Home() {
             <div>
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold tracking-tight text-slate-950">Evidence Scores</h2>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">Current evidence strength, not idea excitement.</p>
+                  <h2 className="text-lg font-semibold tracking-tight text-slate-950">Idea Assessment</h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    A practical assessment across four key areas.
+                  </p>
                 </div>
                 <span className="w-fit rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold capitalize text-slate-600">
                   {result.confidenceLevel} confidence
@@ -397,10 +467,10 @@ export default function Home() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 {[
-                  { title: "Founder fit", assessment: result.founderFit },
-                  { title: "Pain / desire", assessment: result.painOrDesire },
-                  { title: "MVP testability", assessment: result.mvpTestability },
-                  { title: "Commercial potential", assessment: result.commercialPotential },
+                  { title: "Founder Fit", assessment: result.founderFit },
+                  { title: "Pain / Desire", assessment: result.painOrDesire },
+                  { title: "MVP Testability", assessment: result.mvpTestability },
+                  { title: "Commercial Potential", assessment: result.commercialPotential },
                 ].map(({ title, assessment }) => (
                   <div key={title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
                     <div className="flex items-center justify-between gap-4">
@@ -414,10 +484,10 @@ export default function Home() {
                     </div>
                     <p className="mt-4 text-sm leading-6 text-slate-600">{assessment.reason}</p>
                     <details className="mt-4 border-t border-slate-100 pt-3">
-                      <summary className="cursor-pointer text-xs font-semibold text-slate-600">Evidence &amp; uncertainty</summary>
+                      <summary className="cursor-pointer text-xs font-semibold text-slate-600">Basis &amp; uncertainty</summary>
                       <div className="mt-3 space-y-3 text-xs leading-5 text-slate-600">
                         <div>
-                          <p className="font-semibold text-slate-700">Evidence</p>
+                          <p className="font-semibold text-slate-700">Basis</p>
                           {assessment.evidence.length > 0 ? (
                             <ul className="mt-1 list-disc space-y-1 pl-4 marker:text-slate-400">
                               {assessment.evidence.map((item) => (
@@ -438,7 +508,7 @@ export default function Home() {
                 ))}
               </div>
               <p className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-5 text-slate-500">
-                <span className="font-semibold text-slate-700">Score summary:</span> {result.scoreSummary}
+                <span className="font-semibold text-slate-700">Assessment summary:</span> {result.scoreSummary}
               </p>
             </div>
 
@@ -473,30 +543,29 @@ export default function Home() {
             ) : null}
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
-              <h3 className="text-lg font-semibold tracking-tight text-slate-950">7-Day Validation Test</h3>
+              <h3 className="text-lg font-semibold tracking-tight text-slate-950">7-Day Payment Validation</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Ask for payment before investing in a full product. Interest alone does not validate the idea.
+              </p>
               <div className="mt-5 grid gap-6 sm:grid-cols-2">
                 <div className="space-y-6">
-                  {hasContent(result.manualValidationTest.goal) ? (
+                  {hasContent(result.paymentValidation.goal) ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Goal</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{result.manualValidationTest.goal}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{result.paymentValidation.goal}</p>
                     </div>
                   ) : null}
-                  {hasContent(result.manualValidationTest.steps) ? (
+                  {hasContent(result.paymentValidation.offer) ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Paid offer</p>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-slate-800">{result.paymentValidation.offer}</p>
+                    </div>
+                  ) : null}
+                  {hasContent(result.paymentValidation.steps) ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Steps</p>
                       <ul className="mt-2 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                        {formatList(result.manualValidationTest.steps).map((item, index) => (
-                          <li key={index}>{item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {hasContent(result.manualValidationTest.successCriteria) ? (
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">Success criteria</p>
-                      <ul className="mt-2 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                        {formatList(result.manualValidationTest.successCriteria).map((item, index) => (
+                        {formatList(result.paymentValidation.steps).map((item, index) => (
                           <li key={index}>{item}</li>
                         ))}
                       </ul>
@@ -504,27 +573,33 @@ export default function Home() {
                   ) : null}
                 </div>
                 <div className="space-y-6">
-                  {hasContent(result.manualValidationTest.failureCriteria) ? (
+                  {hasContent(result.paymentValidation.decisionRule) ? (
                     <div>
-                      <p className="text-sm font-semibold text-slate-900">Failure criteria</p>
+                      <p className="text-sm font-semibold text-slate-900">Decision rule</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{result.paymentValidation.decisionRule}</p>
+                    </div>
+                  ) : null}
+                  {hasContent(result.paymentValidation.constraints) ? (
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Constraints</p>
                       <ul className="mt-2 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                        {formatList(result.manualValidationTest.failureCriteria).map((item, index) => (
+                        {formatList(result.paymentValidation.constraints).map((item, index) => (
                           <li key={index}>{item}</li>
                         ))}
                       </ul>
                     </div>
                   ) : null}
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {hasContent(result.manualValidationTest.timeRequired) ? (
+                    {hasContent(result.paymentValidation.timeRequired) ? (
                       <div className="rounded-xl bg-slate-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Time required</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-700">{result.manualValidationTest.timeRequired}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{result.paymentValidation.timeRequired}</p>
                       </div>
                     ) : null}
-                    {hasContent(result.manualValidationTest.costEstimate) ? (
+                    {hasContent(result.paymentValidation.costEstimate) ? (
                       <div className="rounded-xl bg-slate-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Cost estimate</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-700">{result.manualValidationTest.costEstimate}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{result.paymentValidation.costEstimate}</p>
                       </div>
                     ) : null}
                   </div>
@@ -532,35 +607,41 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="grid gap-5 sm:grid-cols-2">
-              {hasContent(result.questionsToAskUsers) ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
-                  <h3 className="text-base font-semibold text-slate-900">User Questions</h3>
-                  <ul className="mt-4 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                      {formatList(result.questionsToAskUsers).map((item, index) => (
-                        <li key={index}>{item}</li>
-                      ))}
-                  </ul>
+            {result.keyUnknowns.length > 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
+                <h3 className="text-lg font-semibold tracking-tight text-slate-950">Key Unknowns</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Critical information to resolve during payment validation or manual delivery.
+                </p>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  {result.keyUnknowns.map((item, index) => (
+                    <div key={`${item.unknown}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm font-semibold leading-6 text-slate-800">{item.unknown}</p>
+                      <p className="mt-2 text-xs leading-5 text-slate-600">{item.howToResolve}</p>
+                    </div>
+                  ))}
                 </div>
-              ) : null}
-              {hasContent(result.evidenceNeededBeforeBuilding) ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
-                  <h3 className="text-base font-semibold text-slate-900">Evidence Needed Before Building</h3>
-                  <ul className="mt-4 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                      {formatList(result.evidenceNeededBeforeBuilding).map((item, index) => (
-                        <li key={index}>{item}</li>
-                      ))}
-                  </ul>
-                </div>
-              ) : null}
-            </div>
-
-            {hasContent(result.recommendedNextAction) ? (
-              <div className="rounded-2xl border border-slate-300 bg-white p-6 shadow-sm shadow-slate-200/60 sm:p-8">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Recommended Next Action</p>
-                <p className="mt-3 text-base font-semibold leading-7 text-slate-900">{result.recommendedNextAction}</p>
               </div>
             ) : null}
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
+              <h3 className="text-lg font-semibold tracking-tight text-slate-950">After First Payment</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Fulfil the promise first. Build and scale only after customers keep paying.
+              </p>
+              <div className="mt-5 grid gap-4 sm:grid-cols-3">
+                {[
+                  { title: "Deliver manually", text: result.afterFirstPayment.deliverManually },
+                  { title: "Learn from customers", text: result.afterFirstPayment.learnFromCustomers },
+                  { title: "Repeat before scaling", text: result.afterFirstPayment.repeatBeforeScaling },
+                ].map(({ title, text }) => (
+                  <div key={title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm font-semibold text-slate-800">{title}</p>
+                    <p className="mt-2 text-xs leading-5 text-slate-600">{text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             <PerformanceDetails performance={result.performance} runMetadata={result.runMetadata} />
             <SavedAnalysisRuns idea={idea} response={result} onOpen={openSavedRun} />

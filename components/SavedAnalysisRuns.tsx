@@ -2,15 +2,12 @@
 
 import { useEffect, useState } from "react";
 import type { AnalyzeResponse } from "@/lib/analysis-types";
+import type { SavedAnalysisRun } from "@/lib/saved-analysis-runs";
 
 const STORAGE_KEY = "idea-analyzer:saved-runs:v1";
+const MIGRATION_KEY = "idea-analyzer:saved-runs:file-migration-v1";
 
-export type SavedAnalysisRun = {
-  id: string;
-  savedAt: string;
-  idea: string;
-  response: AnalyzeResponse;
-};
+export type { SavedAnalysisRun } from "@/lib/saved-analysis-runs";
 
 function readSavedRuns() {
   try {
@@ -34,24 +31,65 @@ export function SavedAnalysisRuns({
   const [savedMessage, setSavedMessage] = useState("");
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setSavedRuns(readSavedRuns()), 0);
-    return () => window.clearTimeout(timer);
+    let cancelled = false;
+
+    async function loadRuns() {
+      try {
+        const browserRuns = localStorage.getItem(MIGRATION_KEY) ? [] : readSavedRuns();
+        if (browserRuns.length > 0) {
+          const migrationResponses = await Promise.all(
+            browserRuns.map((run) =>
+              fetch("/api/saved-analyses", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(run),
+              })
+            )
+          );
+          if (migrationResponses.some((response) => !response.ok)) {
+            throw new Error("Unable to migrate browser saves.");
+          }
+          localStorage.setItem(MIGRATION_KEY, new Date().toISOString());
+        }
+
+        const response = await fetch("/api/saved-analyses");
+        if (!response.ok) throw new Error("Unable to load saved analyses.");
+        const runs: unknown = await response.json();
+        if (!cancelled) setSavedRuns(Array.isArray(runs) ? (runs as SavedAnalysisRun[]) : []);
+      } catch {
+        if (!cancelled) {
+          setSavedRuns(readSavedRuns());
+          setSavedMessage("Could not reach file storage. Showing browser saves.");
+        }
+      }
+    }
+
+    void loadRuns();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  function persist(runs: SavedAnalysisRun[]) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(runs));
-    setSavedRuns(runs);
-  }
-
-  function saveCurrentRun() {
+  async function saveCurrentRun() {
     const run: SavedAnalysisRun = {
       id: crypto.randomUUID(),
       savedAt: new Date().toISOString(),
       idea,
       response,
     };
-    persist([run, ...savedRuns]);
-    setSavedMessage("Saved in this browser.");
+    setSavedMessage("Saving...");
+    try {
+      const saveResponse = await fetch("/api/saved-analyses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(run),
+      });
+      if (!saveResponse.ok) throw new Error("Unable to save analysis.");
+      setSavedRuns([run, ...savedRuns]);
+      setSavedMessage("Saved to the project folder.");
+    } catch {
+      setSavedMessage("Could not save to the project folder.");
+    }
   }
 
   function downloadRun(run: SavedAnalysisRun) {
@@ -65,8 +103,18 @@ export function SavedAnalysisRuns({
     URL.revokeObjectURL(url);
   }
 
-  function removeRun(id: string) {
-    persist(savedRuns.filter((run) => run.id !== id));
+  async function removeRun(id: string) {
+    setSavedMessage("Deleting...");
+    try {
+      const response = await fetch(`/api/saved-analyses?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("Unable to delete analysis.");
+      setSavedRuns(savedRuns.filter((run) => run.id !== id));
+      setSavedMessage("Deleted saved analysis.");
+    } catch {
+      setSavedMessage("Could not delete saved analysis.");
+    }
   }
 
   return (
@@ -78,7 +126,7 @@ export function SavedAnalysisRuns({
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={saveCurrentRun}
+            onClick={() => void saveCurrentRun()}
             className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-700"
           >
             Save this output
@@ -128,7 +176,7 @@ export function SavedAnalysisRuns({
                       </button>
                       <button
                         type="button"
-                        onClick={() => removeRun(run.id)}
+                        onClick={() => void removeRun(run.id)}
                         className="rounded-full px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
                       >
                         Delete
@@ -141,7 +189,7 @@ export function SavedAnalysisRuns({
           </div>
         ) : (
           <p className="mt-4 text-xs leading-5 text-slate-500">
-            Saved outputs stay in this browser and include the full response and run configuration.
+            Saved outputs are stored as JSON files in the project&apos;s saved-analyses folder.
           </p>
         )}
       </div>
