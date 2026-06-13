@@ -15,7 +15,7 @@ import type { AnalysisResponse, AnalyzeResponse } from "@/lib/analysis-types";
 import type { OllamaModel } from "@/lib/ollama-models";
 
 const OLLAMA_URL = "http://localhost:11434/api/chat";
-const ANALYSIS_VERSION = "idea-analysis-v1";
+const ANALYSIS_VERSION = "idea-analysis-v2-measurable-validation";
 const OLLAMA_TEMPERATURE = 0;
 const OLLAMA_SEED = 42;
 let cachedCodeVersion: string | null = null;
@@ -426,6 +426,120 @@ function normalizeScoreImprovementRecommendations(value: unknown) {
     .slice(0, 4);
 }
 
+const VAGUE_VALIDATION_LANGUAGE =
+  /\b(express(?:es|ed)? interest|would pay|would use|like(?:s|d)? (?:it|the idea)|users? engage|low interest|good feedback)\b/i;
+const MEASURABLE_THRESHOLD = /\d|€|\$|£|%|\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\b/i;
+const BEHAVIOR_SIGNAL =
+  /\b(open|watch|reply|share|request|ask|pay|paid|deposit|pre-?order|commit|introduce|refer|use|return|book|buy|purchase|sign up|send)\w*/i;
+const HYPOTHETICAL_QUESTION = /\bwould you\b|\bhow much would\b|\bdo you think\b/i;
+
+function criteriaAreMeasurable(criteria: string[]) {
+  return criteria.every(
+    (criterion) =>
+      MEASURABLE_THRESHOLD.test(criterion) && !VAGUE_VALIDATION_LANGUAGE.test(criterion)
+  );
+}
+
+function validationOutputNeedsRepair(parsed: Record<string, unknown>) {
+  const test = isRecord(parsed.manualValidationTest) ? parsed.manualValidationTest : {};
+  const steps = normalizeArrayField(test.steps);
+  const successCriteria = normalizeArrayField(test.successCriteria);
+  const failureCriteria = normalizeArrayField(test.failureCriteria);
+  const questions = normalizeArrayField(parsed.questionsToAskUsers);
+  const recommendedNextAction = String(parsed.recommendedNextAction ?? "").trim();
+  return (
+    steps.length < 4 ||
+    successCriteria.length < 3 ||
+    failureCriteria.length < 3 ||
+    !criteriaAreMeasurable(successCriteria) ||
+    !criteriaAreMeasurable(failureCriteria) ||
+    !String(test.timeRequired ?? "").trim() ||
+    !String(test.costEstimate ?? "").trim() ||
+    recommendedNextAction.length < 40 ||
+    /\b(talk to users|conduct a validation test|build an mvp)\b/i.test(recommendedNextAction) ||
+    questions.length < 3 ||
+    questions.some((question) => !BEHAVIOR_SIGNAL.test(question))
+  );
+}
+
+function removeHypotheticalValidationLanguage(value: string) {
+  return value
+    .replace(/\bor express(?:es|ed)? interest in\b/gi, "or request")
+    .replace(/\bexpress(?:es|ed)? interest in\b/gi, "request")
+    .replace(/\bsay(?:s)? (?:that )?they would pay for\b/gi, "pay for or place a deposit on")
+    .replace(/\bexpress(?:es|ed)? willingness to pay for\b/gi, "pay for or place a deposit on")
+    .replace(/\bwould pay for\b/gi, "pay for or place a deposit on")
+    .replace(/\bwould use\b/gi, "use");
+}
+
+function enforceValidationOutputQuality(parsed: Record<string, unknown>) {
+  const test = isRecord(parsed.manualValidationTest) ? parsed.manualValidationTest : {};
+  const cleanedSuccess = normalizeArrayField(test.successCriteria).map(
+    removeHypotheticalValidationLanguage
+  );
+  const cleanedFailure = normalizeArrayField(test.failureCriteria).map(
+    removeHypotheticalValidationLanguage
+  );
+
+  test.successCriteria = criteriaAreMeasurable(cleanedSuccess)
+    ? cleanedSuccess
+    : [
+        "At least 8 of 12 recruited target users open or use the delivered test within 48 hours.",
+        "At least 4 of 12 request another result, share it, or introduce another target user within 7 days.",
+        "At least 2 of 12 pay or place a deposit at the stated test price before receiving another result.",
+      ];
+  test.failureCriteria = criteriaAreMeasurable(cleanedFailure)
+    ? cleanedFailure
+    : [
+        "Fewer than 3 of 12 recruited target users open or use the delivered test within 48 hours.",
+        "Nobody requests another result, shares it, or introduces another target user within 7 days.",
+        "Nobody pays or places a deposit at the stated test price during the 7-day test.",
+        "Manual delivery takes more than 3 hours per result and cannot be repeated at the test price.",
+      ];
+  test.timeRequired = String(test.timeRequired ?? "").trim() || "6-10 hours across 7 days";
+  test.costEstimate = String(test.costEstimate ?? "").trim() || "€0-€50";
+  parsed.manualValidationTest = test;
+
+  const questions = normalizeArrayField(parsed.questionsToAskUsers);
+  parsed.questionsToAskUsers =
+    questions.length >= 3 &&
+    questions.every(
+      (question) =>
+        BEHAVIOR_SIGNAL.test(question) &&
+        !VAGUE_VALIDATION_LANGUAGE.test(question) &&
+        !HYPOTHETICAL_QUESTION.test(question)
+    )
+      ? questions
+      : [
+          "When did you last experience this problem, and what did you do to solve it?",
+          "What workaround have you used in the past 30 days, and how much time or money did it cost?",
+          "Have you paid for an alternative in the past 12 months? What did you buy and how much did you pay?",
+          "Will you place a small deposit today to receive the next result from this test?",
+        ];
+
+  const recommendedNextAction = removeHypotheticalValidationLanguage(
+    String(parsed.recommendedNextAction ?? "").trim()
+  );
+  parsed.recommendedNextAction =
+    recommendedNextAction ||
+    "Recruit 12 target users this week, manually deliver the First Testable Version using existing tools, send it directly, and track opens, repeat requests, referrals, and payments or deposits for a second result.";
+}
+
+function mergeValidationRepair(
+  parsed: Record<string, unknown>,
+  repair: Record<string, unknown>
+) {
+  if (isRecord(repair.manualValidationTest)) {
+    parsed.manualValidationTest = repair.manualValidationTest;
+  }
+  if (normalizeArrayField(repair.questionsToAskUsers).length > 0) {
+    parsed.questionsToAskUsers = repair.questionsToAskUsers;
+  }
+  if (String(repair.recommendedNextAction ?? "").trim()) {
+    parsed.recommendedNextAction = repair.recommendedNextAction;
+  }
+}
+
 const SCORE_RECOMMENDATION_FALLBACKS: Record<
   ScoreArea,
   { recommendation: string; whyItCouldImproveTheScore: string; evidenceToCollect: string }
@@ -607,7 +721,34 @@ recommendedStrategy must be exactly one of:
 
 Do not default every idea to test_manually_first. Recommend build_tiny_prototype when software is the smallest useful behavioral test. Recommend research_first when customer understanding is the main gap. Recommend build_software_mvp only when evidence and necessity justify it. recommendedStrategyLabel is a readable label. strategyReason must explain why this strategy is the right next level of commitment.
 
-Prefer conservative scores. If evidence is missing, say so clearly. Focus on the smallest useful version and separate future vision from MVP reality. Identify what not to build yet. The manualValidationTest object is mandatory. steps must contain 3 to 7 concrete steps. successCriteria and failureCriteria must each contain 2 to 4 measurable criteria. timeRequired and costEstimate must be realistic and specific. The test must be possible within 7 days using existing tools such as phone camera, Google Drive, WhatsApp, Google Forms, payment links, manual editing, spreadsheets, or direct outreach. Do not recommend building software as the first validation test unless there is evidence of demand. Return only valid JSON. No markdown or commentary outside JSON.
+Prefer conservative scores. If evidence is missing, say so clearly. Focus on the smallest useful version and separate future vision from MVP reality. Identify what not to build yet.
+
+The manualValidationTest object is mandatory and must contain exactly:
+- goal: one falsifiable core assumption the test evaluates
+- steps: 4 to 7 concrete actions in execution order
+- successCriteria: 3 to 5 measurable pass thresholds
+- failureCriteria: 3 to 5 measurable stop, change, or rethink thresholds
+- timeRequired: a specific estimate, such as "6-8 hours across 7 days"
+- costEstimate: a specific estimate or range, such as "€0-€30"
+
+Validation-test quality rules:
+- Every success criterion and failure criterion must contain a number, percentage, price, time limit, or other objectively observable threshold.
+- Name the denominator or sample size where relevant, for example "at least 8 of 12 players", not "most players".
+- Prefer observed behavior over stated opinions: opens, replies, shares, requests, repeat use, introductions, deposits, pre-orders, or payments.
+- Do not use vague criteria such as "users engage", "users express interest", "users like it", "low interest", or "good feedback".
+- Include at least one criterion testing demand behavior and, when monetization is plausible, at least one criterion testing payment or pre-commitment.
+- Include an operational feasibility failure threshold when manual delivery effort is a material risk.
+- The steps must explain exactly who to recruit, what to offer, how to deliver it with existing tools, and what actions to track.
+- The test must be possible within 7 days using existing tools such as phone camera, Google Drive, WhatsApp, Google Forms, payment links, manual editing, spreadsheets, or direct outreach.
+- Do not recommend building software as the first validation test unless there is evidence of demand.
+
+recommendedNextAction must describe one exact real-world experiment, including the immediate setting or audience, what to make or offer, the delivery channel, and the behaviors or payments to track. Do not return generic actions such as "talk to users", "conduct a validation test", or "build an MVP".
+
+questionsToAskUsers must be behavior- or payment-based. Ask about recent real behavior, existing workarounds, prior spending, or request an immediate commitment at a stated price. Avoid generic opinion questions such as "Would you use this?", "Do you like this?", or "Is this useful?".
+
+Example of the required level of specificity: "At least 8 of 12 players open the footage link within 48 hours", "At least 4 request a clip", "At least 2 pay or place a €5 deposit before receiving future clips", and "Stop or change the offer if manual delivery takes more than 3 hours per game." Adapt thresholds to the idea rather than copying these numbers blindly.
+
+Return only valid JSON. No markdown or commentary outside JSON.
 
 Business idea:
 ${idea}
@@ -629,6 +770,59 @@ ${founderProfileSection}`,
       );
     }
 
+    if (validationOutputNeedsRepair(parsed)) {
+      const validationRepairResult = await callOllama(
+        model,
+        [
+          {
+            role: "system",
+            content:
+              "You are a rigorous experiment designer. Repair only the requested validation fields. Return valid JSON only. Use observable behavior and objective thresholds, never vague interest or hypothetical willingness.",
+          },
+          {
+            role: "user",
+            content: `Repair the validation plan for this business idea.
+
+Return JSON with exactly these fields: manualValidationTest, questionsToAskUsers, recommendedNextAction.
+
+manualValidationTest must contain exactly:
+- goal: one falsifiable assumption
+- steps: 4 to 7 concrete actions
+- successCriteria: 3 to 5 criteria, each with an objective numeric, price, percentage, or time threshold
+- failureCriteria: 3 to 5 criteria, each with an objective numeric, price, percentage, or time threshold
+- timeRequired: a specific estimate
+- costEstimate: a specific estimate or range
+
+Rules:
+- Use real behavior: opens, replies, shares, requests, payments, deposits, introductions, bookings, repeat use, or delivery time.
+- Never use "express interest", "would pay", "would use", "users engage", "users like it", or other opinion-only signals.
+- Include at least one demand-behavior threshold and one payment or pre-commitment threshold when monetization is plausible.
+- Include an operational feasibility failure threshold when manual delivery effort is a risk.
+- questionsToAskUsers must contain 3 to 6 behavior- or payment-based questions about recent actions, current workarounds, prior spending, or an immediate commitment at a stated price.
+- recommendedNextAction must describe one exact experiment: who to approach, what to make or offer, how to deliver it, and what behavior or payment to track.
+
+Business idea:
+${idea}
+
+Existing plan to repair:
+${JSON.stringify({
+  manualValidationTest: parsed.manualValidationTest,
+  questionsToAskUsers: parsed.questionsToAskUsers,
+  recommendedNextAction: parsed.recommendedNextAction,
+})}`,
+          },
+        ],
+        1400
+      );
+      recordOllamaMetrics(performanceAccumulator, validationRepairResult.metrics);
+      const validationRepair = timedExtractJson(
+        validationRepairResult.assistantText,
+        performanceAccumulator
+      );
+      mergeValidationRepair(parsed, validationRepair);
+    }
+    enforceValidationOutputQuality(parsed);
+
     const normalizeManualTest = (value: unknown) => {
       if (typeof value !== "object" || value === null) {
         return {
@@ -643,12 +837,12 @@ ${founderProfileSection}`,
 
       const test = value as Record<string, unknown>;
       return {
-        goal: String(test.goal ?? ""),
-        steps: normalizeArrayField(test.steps),
-        successCriteria: normalizeArrayField(test.successCriteria),
-        failureCriteria: normalizeArrayField(test.failureCriteria),
-        timeRequired: String(test.timeRequired ?? ""),
-        costEstimate: String(test.costEstimate ?? ""),
+        goal: String(test.goal ?? "").trim(),
+        steps: normalizeArrayField(test.steps).slice(0, 7),
+        successCriteria: normalizeArrayField(test.successCriteria).slice(0, 5),
+        failureCriteria: normalizeArrayField(test.failureCriteria).slice(0, 5),
+        timeRequired: String(test.timeRequired ?? "").trim(),
+        costEstimate: String(test.costEstimate ?? "").trim(),
       };
     };
 
