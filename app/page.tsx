@@ -317,34 +317,60 @@ export default function Home() {
             </div>
 
             <div>
-              <h2 className="mb-4 text-lg font-semibold tracking-tight text-slate-950">Decision Scores</h2>
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold tracking-tight text-slate-950">Evidence Scores</h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">Current evidence strength, not idea excitement.</p>
+                </div>
+                <span className="w-fit rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold capitalize text-slate-600">
+                  {result.confidenceLevel} confidence
+                </span>
+              </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 {[
-                  { label: "Founder fit", score: result.founderFitScore, reason: result.founderFitReason },
-                  { label: "Pain / desire", score: result.painOrDesireScore, reason: result.painOrDesireReason },
-                  { label: "MVP testability", score: result.mvpTestabilityScore, reason: result.mvpTestabilityReason },
-                  {
-                    label: "Commercial potential",
-                    score: result.commercialPotentialScore,
-                    reason: result.commercialPotentialReason,
-                  },
-                ].map(({ label, score, reason }) => (
-                  <div key={label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
+                  { title: "Founder fit", assessment: result.founderFit },
+                  { title: "Pain / desire", assessment: result.painOrDesire },
+                  { title: "MVP testability", assessment: result.mvpTestability },
+                  { title: "Commercial potential", assessment: result.commercialPotential },
+                ].map(({ title, assessment }) => (
+                  <div key={title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
                     <div className="flex items-center justify-between gap-4">
-                      <h3 className="text-sm font-semibold text-slate-900">{label}</h3>
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+                        <p className="mt-1 text-xs font-medium text-slate-500">{assessment.label}</p>
+                      </div>
                       <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-2 text-sm font-bold text-slate-700">
-                        {score}
+                        {assessment.score}
                       </span>
                     </div>
-                    <p className="mt-4 text-sm leading-6 text-slate-600">{reason}</p>
+                    <p className="mt-4 text-sm leading-6 text-slate-600">{assessment.reason}</p>
+                    <details className="mt-4 border-t border-slate-100 pt-3">
+                      <summary className="cursor-pointer text-xs font-semibold text-slate-600">Evidence &amp; uncertainty</summary>
+                      <div className="mt-3 space-y-3 text-xs leading-5 text-slate-600">
+                        <div>
+                          <p className="font-semibold text-slate-700">Evidence</p>
+                          {assessment.evidence.length > 0 ? (
+                            <ul className="mt-1 list-disc space-y-1 pl-4 marker:text-slate-400">
+                              {assessment.evidence.map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-1 text-slate-500">No direct evidence provided.</p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-700">Uncertainty</p>
+                          <p className="mt-1">{assessment.uncertainty}</p>
+                        </div>
+                      </div>
+                    </details>
                   </div>
                 ))}
               </div>
-              {hasContent(result.scoreCalibration) ? (
-                <p className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-5 text-slate-500">
-                  <span className="font-semibold text-slate-700">Score calibration:</span> {result.scoreCalibration}
-                </p>
-              ) : null}
+              <p className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-5 text-slate-500">
+                <span className="font-semibold text-slate-700">Score summary:</span> {result.scoreSummary}
+              </p>
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">

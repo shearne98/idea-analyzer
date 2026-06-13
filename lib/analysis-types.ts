@@ -60,6 +60,14 @@ export type ClarificationResponse = {
   possibleDirections: string[];
 };
 
+export type ScoreAssessment = {
+  score: number;
+  label: string;
+  reason: string;
+  evidence: string[];
+  uncertainty: string;
+};
+
 export type AnalysisResponse = {
   status: "analysis";
   ideaSummary: string;
@@ -68,15 +76,12 @@ export type AnalysisResponse = {
   smallestViableWedge: string;
   targetCustomer: string;
   corePainOrDesire: string;
-  founderFitScore: number;
-  founderFitReason: string;
-  painOrDesireScore: number;
-  painOrDesireReason: string;
-  mvpTestabilityScore: number;
-  mvpTestabilityReason: string;
-  commercialPotentialScore: number;
-  commercialPotentialReason: string;
-  scoreCalibration: string;
+  founderFit: ScoreAssessment;
+  painOrDesire: ScoreAssessment;
+  mvpTestability: ScoreAssessment;
+  commercialPotential: ScoreAssessment;
+  scoreSummary: string;
+  confidenceLevel: "low" | "medium" | "high";
   mostDangerousAssumption: string;
   whyThisMightFail: string[];
   whatNotToBuildYet: string[];

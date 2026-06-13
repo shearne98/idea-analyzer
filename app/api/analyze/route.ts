@@ -161,6 +161,38 @@ function normalizeClarification(
   };
 }
 
+function scoreLabel(score: number) {
+  if (score <= 2) return "Very weak";
+  if (score <= 4) return "Weak";
+  if (score <= 6) return "Plausible but unproven";
+  if (score <= 8) return "Strong";
+  return "Exceptional";
+}
+
+function normalizeScore(
+  value: unknown,
+  legacyScore: unknown,
+  legacyReason: unknown
+) {
+  const assessment = isRecord(value) ? value : {};
+  const rawScore = Number(assessment.score ?? legacyScore);
+  const score = Number.isFinite(rawScore)
+    ? Math.min(10, Math.max(1, Math.round(rawScore)))
+    : 1;
+
+  return {
+    score,
+    label: scoreLabel(score),
+    reason:
+      String(assessment.reason ?? legacyReason ?? "").trim() ||
+      "There is not enough evidence to support a stronger score.",
+    evidence: normalizeArrayField(assessment.evidence).slice(0, 5),
+    uncertainty:
+      String(assessment.uncertainty ?? "").trim() ||
+      "Important assumptions remain unverified.",
+  };
+}
+
 export async function POST(req: NextRequest) {
   let body: { idea?: unknown; model?: unknown } = {};
 
@@ -234,11 +266,42 @@ ${idea}`,
         {
           role: "system",
           content:
-            "You are a skeptical product strategist. Analyze startup ideas with practical scrutiny, penalizing vague buyers, weak pain, unclear monetization, and over-complex MVPs. Prefer manual validation before building software. Use the founder profile when assessing founder fit. If the founder profile is missing or empty, state clearly that founder fit cannot be reliably assessed. Do not invent missing business context. If important context is missing, lower confidence and say what evidence is needed. Return only valid JSON. No markdown, no commentary outside the JSON.",
+            "You are a skeptical product strategist. Analyze startup ideas with practical scrutiny. Scores estimate current evidence strength, not excitement. Missing evidence lowers scores. Scores above 8 are rare and require exceptional proof. Separate what is known, assumed, and uncertain. Never invent evidence or missing business context. Prefer manual validation before building software. Use the founder profile when assessing founder fit. If the founder profile is missing or empty, founder fit must remain low or uncertain. Return only valid JSON. No markdown, no commentary outside the JSON.",
         },
         {
           role: "user",
-          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, smallestViableWedge, targetCustomer, corePainOrDesire, founderFitScore, founderFitReason, painOrDesireScore, painOrDesireReason, mvpTestabilityScore, mvpTestabilityReason, commercialPotentialScore, commercialPotentialReason, scoreCalibration, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, manualValidationTest, questionsToAskUsers, evidenceNeededBeforeBuilding, recommendedNextAction, buildDecision. Use scores from 1 to 10. Prefer conservative scores. If evidence is missing, say so clearly. Do not invent missing business context. If important context is missing, lower confidence and say what evidence is needed. Focus on the smallest useful version of the idea and separate future vision from MVP reality. Identify what not to build yet. The manualValidationTest object is mandatory. steps must contain 3 to 7 concrete steps. successCriteria must contain 2 to 4 measurable criteria. failureCriteria must contain 2 to 4 measurable criteria. timeRequired and costEstimate must be realistic and specific. The test must be possible within 7 days using existing tools such as phone camera, Google Drive, WhatsApp, Google Forms, Notion, Stripe payment links, manual editing, spreadsheets, or direct outreach. Do not recommend building software as the first validation test unless there is evidence of demand. Return only valid JSON. No markdown, no commentary outside JSON.
+          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, smallestViableWedge, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, manualValidationTest, questionsToAskUsers, evidenceNeededBeforeBuilding, recommendedNextAction, buildDecision.
+
+Each of founderFit, painOrDesire, mvpTestability, and commercialPotential must be an object with exactly:
+score: integer from 1 to 10
+label: string
+reason: concise explanation of why the current evidence supports this score
+evidence: array of concrete evidence explicitly present in the idea or founder profile
+uncertainty: the most important unknown or assumption affecting the score
+
+Use this universal scale:
+1-2 = Very weak
+3-4 = Weak
+5-6 = Plausible but unproven
+7-8 = Strong
+9-10 = Exceptional
+
+Scoring rules:
+- Scores estimate current evidence strength, not excitement.
+- Missing evidence lowers the score. Do not invent evidence.
+- Scores above 8 are rare and require strong real-world proof.
+- Separate what is known, assumed, and uncertain.
+- founderFit: lived experience, domain knowledge, access to users, technical ability, motivation, and ability to test manually. Interest alone is not evidence.
+- painOrDesire: urgency, frequency, cost, emotional or status motivation, existing workaround behavior, and existing time or money spent.
+- mvpTestability: whether the riskiest assumption can be tested within 7 days, manually, cheaply, and without software. Complex technology, hardware, regulation, or network effects lower the score.
+- commercialPotential: clear buyer, budget, willingness to pay, recurring use, pricing model, and value exchange. Users liking something is not payment evidence.
+
+confidenceLevel must be "low", "medium", or "high":
+- low: many assumptions or important missing context
+- medium: enough detail to analyze but little real-world proof
+- high: strong evidence such as customer data, payment signals, or direct user access
+
+Prefer conservative scores. If evidence is missing, say so clearly. Focus on the smallest useful version and separate future vision from MVP reality. Identify what not to build yet. The manualValidationTest object is mandatory. steps must contain 3 to 7 concrete steps. successCriteria and failureCriteria must each contain 2 to 4 measurable criteria. timeRequired and costEstimate must be realistic and specific. The test must be possible within 7 days using existing tools such as phone camera, Google Drive, WhatsApp, Google Forms, payment links, manual editing, spreadsheets, or direct outreach. Do not recommend building software as the first validation test unless there is evidence of demand. Return only valid JSON. No markdown or commentary outside JSON.
 
 Business idea:
 ${idea}
@@ -246,7 +309,7 @@ ${idea}
 ${founderProfileSection}`,
         },
       ],
-      800
+      1400
     );
 
     let parsed: Record<string, unknown>;
@@ -286,6 +349,29 @@ ${founderProfileSection}`,
     parsed.questionsToAskUsers = normalizeArrayField(parsed.questionsToAskUsers);
     parsed.evidenceNeededBeforeBuilding = normalizeArrayField(parsed.evidenceNeededBeforeBuilding);
     parsed.manualValidationTest = normalizeManualTest(parsed.manualValidationTest);
+    parsed.founderFit = normalizeScore(parsed.founderFit, parsed.founderFitScore, parsed.founderFitReason);
+    parsed.painOrDesire = normalizeScore(parsed.painOrDesire, parsed.painOrDesireScore, parsed.painOrDesireReason);
+    parsed.mvpTestability = normalizeScore(parsed.mvpTestability, parsed.mvpTestabilityScore, parsed.mvpTestabilityReason);
+    parsed.commercialPotential = normalizeScore(
+      parsed.commercialPotential,
+      parsed.commercialPotentialScore,
+      parsed.commercialPotentialReason
+    );
+    parsed.scoreSummary =
+      String(parsed.scoreSummary ?? "").trim() ||
+      "The scores reflect the strength of currently provided evidence and should improve only when assumptions are validated.";
+    parsed.confidenceLevel = ["low", "medium", "high"].includes(String(parsed.confidenceLevel))
+      ? String(parsed.confidenceLevel)
+      : "low";
+    delete parsed.founderFitScore;
+    delete parsed.founderFitReason;
+    delete parsed.painOrDesireScore;
+    delete parsed.painOrDesireReason;
+    delete parsed.mvpTestabilityScore;
+    delete parsed.mvpTestabilityReason;
+    delete parsed.commercialPotentialScore;
+    delete parsed.commercialPotentialReason;
+    delete parsed.scoreCalibration;
     parsed.status = "analysis";
 
     return NextResponse.json(parsed);
