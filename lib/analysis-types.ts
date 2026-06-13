@@ -23,6 +23,15 @@ export type PerformanceMetrics = {
   jsonParseMs: number | null;
 };
 
+export type RunMetadata = {
+  analysisVersion: string;
+  codeVersion: string;
+  model: string;
+  deepThinking: boolean;
+  temperature: number;
+  seed: number;
+};
+
 export const INTAKE_FIELDS = [
   {
     key: "targetCustomer",
@@ -75,6 +84,7 @@ export type ClarificationResponse = {
   clarifyingQuestions: string[];
   possibleDirections: string[];
   performance: PerformanceMetrics;
+  runMetadata: RunMetadata;
 };
 
 export type ScoreAssessment = {
@@ -138,6 +148,7 @@ export type AnalysisResponse = {
   recommendedStrategyLabel: string;
   strategyReason: string;
   performance: PerformanceMetrics;
+  runMetadata: RunMetadata;
 };
 
 export type AnalyzeResponse = ClarificationResponse | AnalysisResponse;

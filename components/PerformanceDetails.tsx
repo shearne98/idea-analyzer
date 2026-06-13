@@ -1,4 +1,4 @@
-import type { PerformanceMetrics } from "@/lib/analysis-types";
+import type { PerformanceMetrics, RunMetadata } from "@/lib/analysis-types";
 
 function formatDuration(milliseconds: number) {
   return milliseconds >= 1000
@@ -10,9 +10,20 @@ function formatRate(rate: number) {
   return `${rate.toFixed(2)} tokens/s`;
 }
 
-export function PerformanceDetails({ performance }: { performance: PerformanceMetrics }) {
+export function PerformanceDetails({
+  performance,
+  runMetadata,
+}: {
+  performance: PerformanceMetrics;
+  runMetadata: RunMetadata;
+}) {
   const metrics = [
     { label: "Model", value: performance.model },
+    { label: "Analysis version", value: runMetadata.analysisVersion },
+    { label: "Code version", value: runMetadata.codeVersion },
+    { label: "Deep thinking", value: runMetadata.deepThinking ? "Enabled" : "Disabled" },
+    { label: "Temperature", value: String(runMetadata.temperature) },
+    { label: "Seed", value: String(runMetadata.seed) },
     { label: "Total request time", value: formatDuration(performance.totalRequestMs) },
     { label: "Ollama request time", value: formatDuration(performance.ollamaRequestMs) },
     {

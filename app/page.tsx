@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AnalysisLoader } from "@/components/AnalysisLoader";
 import { PerformanceDetails } from "@/components/PerformanceDetails";
+import { SavedAnalysisRuns, type SavedAnalysisRun } from "@/components/SavedAnalysisRuns";
 import {
   INTAKE_FIELDS,
   type AnalysisResponse,
@@ -17,7 +18,9 @@ export default function Home() {
   const [clarification, setClarification] = useState<ClarificationResponse | null>(null);
   const [additionalContext, setAdditionalContext] = useState("");
   const [selectedModel, setSelectedModel] = useState<OllamaModel>(DEFAULT_OLLAMA_MODEL);
+  const [deepThinking, setDeepThinking] = useState(false);
   const [analyzedModel, setAnalyzedModel] = useState<OllamaModel | null>(null);
+  const [analyzedWithDeepThinking, setAnalyzedWithDeepThinking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -61,6 +64,7 @@ export default function Home() {
     setResult(null);
     setClarification(null);
     setAnalyzedModel(null);
+    setAnalyzedWithDeepThinking(false);
     if (!ideaToAnalyze.trim()) {
       setError("Please enter a business idea before analyzing.");
       return;
@@ -68,6 +72,7 @@ export default function Home() {
 
     setIsLoading(true);
     const requestedModel = selectedModel;
+    const requestedDeepThinking = deepThinking;
 
     try {
       const response = await fetch("/api/analyze", {
@@ -75,7 +80,11 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ idea: ideaToAnalyze.trim(), model: requestedModel }),
+        body: JSON.stringify({
+          idea: ideaToAnalyze.trim(),
+          model: requestedModel,
+          deepThinking: requestedDeepThinking,
+        }),
       });
 
       const data: AnalyzeResponse & { error?: string } = await response.json();
@@ -89,6 +98,7 @@ export default function Home() {
       } else {
         setResult(data);
         setAnalyzedModel(requestedModel);
+        setAnalyzedWithDeepThinking(requestedDeepThinking);
       }
     } catch {
       setError("Unable to connect to the analysis service. Check your network or make sure Ollama is running.");
@@ -112,6 +122,24 @@ export default function Home() {
     setIdea(richerIdea);
     setAdditionalContext("");
     void analyzeIdea(richerIdea);
+  }
+
+  function openSavedRun(run: SavedAnalysisRun) {
+    setIdea(run.idea);
+    setError("");
+    setAdditionalContext("");
+    setSelectedModel(run.response.runMetadata.model as OllamaModel);
+    setDeepThinking(run.response.runMetadata.deepThinking);
+    setAnalyzedModel(run.response.runMetadata.model as OllamaModel);
+    setAnalyzedWithDeepThinking(run.response.runMetadata.deepThinking);
+    if (run.response.status === "analysis") {
+      setResult(run.response);
+      setClarification(null);
+    } else {
+      setClarification(run.response);
+      setResult(null);
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   return (
@@ -159,6 +187,19 @@ export default function Home() {
                 ))}
               </select>
             </div>
+            <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={deepThinking}
+                onChange={(event) => setDeepThinking(event.target.checked)}
+                disabled={isLoading}
+                className="h-4 w-4 rounded border-slate-300 accent-slate-800"
+              />
+              <span>
+                Deep thinking
+                <span className="ml-1 text-xs text-slate-400">(slower)</span>
+              </span>
+            </label>
             <button
               type="button"
               onClick={handleAnalyze}
@@ -249,7 +290,11 @@ export default function Home() {
               Analyze with added context
             </button>
             <div className="mt-6">
-              <PerformanceDetails performance={clarification.performance} />
+              <PerformanceDetails
+                performance={clarification.performance}
+                runMetadata={clarification.runMetadata}
+              />
+              <SavedAnalysisRuns idea={idea} response={clarification} onOpen={openSavedRun} />
             </div>
           </section>
         ) : null}
@@ -257,13 +302,13 @@ export default function Home() {
         {result ? (
           <section className="space-y-6 pb-12">
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/60 sm:p-9">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Decision</p>
-              <h2 className="mt-3 max-w-3xl text-2xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-3xl">
+              <h2 className="max-w-3xl text-2xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-3xl">
                 {result.ideaSummary}
               </h2>
               {analyzedModel ? (
                 <p className="mt-3 text-xs text-slate-500">
                   Analyzed with: <span className="font-medium text-slate-600">{analyzedModel}</span>
+                  {analyzedWithDeepThinking ? " · Deep thinking" : ""}
                 </p>
               ) : null}
 
@@ -517,7 +562,8 @@ export default function Home() {
               </div>
             ) : null}
 
-            <PerformanceDetails performance={result.performance} />
+            <PerformanceDetails performance={result.performance} runMetadata={result.runMetadata} />
+            <SavedAnalysisRuns idea={idea} response={result} onOpen={openSavedRun} />
           </section>
         ) : null}
       </div>

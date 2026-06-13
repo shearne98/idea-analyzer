@@ -1,5 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { createHash } from "crypto";
+import { execFileSync } from "child_process";
 import {
   INTAKE_FIELDS,
   SCORE_AREAS,
@@ -13,6 +15,42 @@ import type { AnalysisResponse, AnalyzeResponse } from "@/lib/analysis-types";
 import type { OllamaModel } from "@/lib/ollama-models";
 
 const OLLAMA_URL = "http://localhost:11434/api/chat";
+const ANALYSIS_VERSION = "idea-analysis-v1";
+const OLLAMA_TEMPERATURE = 0;
+const OLLAMA_SEED = 42;
+let cachedCodeVersion: string | null = null;
+
+function getCodeVersion() {
+  if (cachedCodeVersion) return cachedCodeVersion;
+  try {
+    const revision = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    }).trim();
+    const workingChanges = execFileSync("git", ["diff", "--no-ext-diff", "HEAD", "--", "app", "components", "lib"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    const changeHash = workingChanges
+      ? `-${createHash("sha256").update(workingChanges).digest("hex").slice(0, 8)}`
+      : "";
+    cachedCodeVersion = `${revision}${changeHash}`;
+  } catch {
+    cachedCodeVersion = ANALYSIS_VERSION;
+  }
+  return cachedCodeVersion;
+}
+
+async function buildRunMetadata(model: OllamaModel, deepThinking: boolean) {
+  return {
+    analysisVersion: ANALYSIS_VERSION,
+    codeVersion: getCodeVersion(),
+    model,
+    deepThinking,
+    temperature: OLLAMA_TEMPERATURE,
+    seed: OLLAMA_SEED,
+  };
+}
 
 export class IdeaAnalysisRunError extends Error {
   constructor(
@@ -127,7 +165,12 @@ function intakeNeedsClarification(intake: Record<string, unknown>, idea: string)
   );
 }
 
-async function callOllama(model: string, messages: { role: string; content: string }[], maxTokens: number) {
+async function callOllama(
+  model: string,
+  messages: { role: string; content: string }[],
+  maxTokens: number,
+  think = false
+) {
   const requestStartedAt = performance.now();
   const response = await fetch(OLLAMA_URL, {
     method: "POST",
@@ -137,8 +180,13 @@ async function callOllama(model: string, messages: { role: string; content: stri
     body: JSON.stringify({
       model,
       stream: false,
-      temperature: 0.2,
-      max_tokens: maxTokens,
+      think,
+      format: "json",
+      options: {
+        temperature: OLLAMA_TEMPERATURE,
+        seed: OLLAMA_SEED,
+        num_predict: maxTokens,
+      },
       messages,
     }),
   });
@@ -254,7 +302,7 @@ function normalizeClarification(
   parsed: Record<string, unknown>,
   idea: string,
   isExtremelyVague: boolean
-): Omit<ClarificationResponse, "performance"> {
+): Omit<ClarificationResponse, "performance" | "runMetadata"> {
   const missingFieldSet = new Set(
     normalizeArrayField(parsed.missingFields).filter(isIntakeFieldKey)
   );
@@ -433,9 +481,11 @@ function fallbackScoreImprovementRecommendation(parsed: Record<string, unknown>)
 async function executeIdeaAnalysis({
   idea,
   model,
+  deepThinking,
 }: {
   idea: string;
   model: OllamaModel;
+  deepThinking: boolean;
 }): Promise<AnalyzeResponse> {
   const performanceAccumulator: PerformanceAccumulator = {
     requestStartedAt: Date.now(),
@@ -444,6 +494,7 @@ async function executeIdeaAnalysis({
     calls: [],
   };
   const founderProfile = await readFounderProfile();
+  const runMetadata = await buildRunMetadata(model, deepThinking);
   const founderProfileSection = founderProfile
     ? `Founder profile:\n${founderProfile}`
     : "Founder profile is not available. Founder fit cannot be reliably assessed from the idea alone.";
@@ -491,6 +542,7 @@ ${idea}`,
       return {
         ...normalizeClarification(intake, idea, isExtremelyVague),
         performance,
+        runMetadata,
       };
     }
 
@@ -563,7 +615,8 @@ ${idea}
 ${founderProfileSection}`,
         },
       ],
-      1900
+      deepThinking ? 6000 : 3000,
+      deepThinking
     );
     recordOllamaMetrics(performanceAccumulator, analysisResult.metrics);
 
@@ -649,6 +702,7 @@ ${founderProfileSection}`,
     delete parsed.buildDecision;
     parsed.status = "analysis";
     parsed.performance = buildPerformance(model, performanceAccumulator);
+    parsed.runMetadata = runMetadata;
     logPerformance(parsed.performance as PerformanceMetrics);
 
     return parsed as AnalysisResponse;
@@ -657,6 +711,7 @@ ${founderProfileSection}`,
 export async function runIdeaAnalysis(input: {
   idea: string;
   model: OllamaModel;
+  deepThinking: boolean;
 }): Promise<AnalyzeResponse> {
   try {
     return await executeIdeaAnalysis(input);

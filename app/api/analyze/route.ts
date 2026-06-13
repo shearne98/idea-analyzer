@@ -3,7 +3,7 @@ import { IdeaAnalysisRunError, runIdeaAnalysis } from "@/lib/idea-analysis-run";
 import { isOllamaModel, OLLAMA_MODELS } from "@/lib/ollama-models";
 
 export async function POST(req: NextRequest) {
-  let body: { idea?: unknown; model?: unknown } = {};
+  let body: { idea?: unknown; model?: unknown; deepThinking?: unknown } = {};
 
   try {
     body = await req.json();
@@ -24,8 +24,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (body.deepThinking !== undefined && typeof body.deepThinking !== "boolean") {
+    return NextResponse.json({ error: "deepThinking must be true or false." }, { status: 400 });
+  }
+
   try {
-    return NextResponse.json(await runIdeaAnalysis({ idea, model: body.model }));
+    return NextResponse.json(
+      await runIdeaAnalysis({ idea, model: body.model, deepThinking: body.deepThinking ?? false })
+    );
   } catch (error) {
     const runError =
       error instanceof IdeaAnalysisRunError
