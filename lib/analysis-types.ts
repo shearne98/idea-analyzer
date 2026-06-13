@@ -7,6 +7,22 @@ export type ManualTest = {
   costEstimate: string;
 };
 
+export type PerformanceMetrics = {
+  model: string;
+  requestStartedAt: string;
+  requestFinishedAt: string;
+  totalRequestMs: number;
+  ollamaRequestMs: number;
+  ollamaTotalMs: number | null;
+  ollamaGenerationMs: number | null;
+  modelLoadMs: number | null;
+  promptTokens: number | null;
+  outputTokens: number | null;
+  promptTokensPerSecond: number | null;
+  outputTokensPerSecond: number | null;
+  jsonParseMs: number | null;
+};
+
 export const INTAKE_FIELDS = [
   {
     key: "targetCustomer",
@@ -58,6 +74,7 @@ export type ClarificationResponse = {
   missingFields: IntakeFieldKey[];
   clarifyingQuestions: string[];
   possibleDirections: string[];
+  performance: PerformanceMetrics;
 };
 
 export type ScoreAssessment = {
@@ -68,12 +85,39 @@ export type ScoreAssessment = {
   uncertainty: string;
 };
 
+export const SCORE_AREAS = [
+  "Founder Fit",
+  "Pain / Desire",
+  "MVP Testability",
+  "Commercial Potential",
+] as const;
+
+export type ScoreArea = (typeof SCORE_AREAS)[number];
+
+export type ScoreImprovementRecommendation = {
+  scoreArea: ScoreArea;
+  currentIssue: string;
+  recommendation: string;
+  whyItCouldImproveTheScore: string;
+  evidenceToCollect: string;
+};
+
+export type RecommendedStrategy =
+  | "clarify_more"
+  | "research_first"
+  | "test_manually_first"
+  | "build_tiny_prototype"
+  | "build_software_mvp"
+  | "pause"
+  | "kill";
+
 export type AnalysisResponse = {
   status: "analysis";
   ideaSummary: string;
   oneSentenceVerdict: string;
   strongestVersion: string;
   smallestViableWedge: string;
+  firstTestableVersion: string;
   targetCustomer: string;
   corePainOrDesire: string;
   founderFit: ScoreAssessment;
@@ -82,6 +126,7 @@ export type AnalysisResponse = {
   commercialPotential: ScoreAssessment;
   scoreSummary: string;
   confidenceLevel: "low" | "medium" | "high";
+  scoreImprovementRecommendations: ScoreImprovementRecommendation[];
   mostDangerousAssumption: string;
   whyThisMightFail: string[];
   whatNotToBuildYet: string[];
@@ -89,7 +134,10 @@ export type AnalysisResponse = {
   questionsToAskUsers: string[];
   evidenceNeededBeforeBuilding: string[];
   recommendedNextAction: string;
-  buildDecision: "build_later" | "test_manually_first" | "pause" | "kill";
+  recommendedStrategy: RecommendedStrategy;
+  recommendedStrategyLabel: string;
+  strategyReason: string;
+  performance: PerformanceMetrics;
 };
 
 export type AnalyzeResponse = ClarificationResponse | AnalysisResponse;

@@ -1,10 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-import { INTAKE_FIELDS, isIntakeFieldKey, type ClarificationResponse } from "@/lib/analysis-types";
+import {
+  INTAKE_FIELDS,
+  SCORE_AREAS,
+  isIntakeFieldKey,
+  type ClarificationResponse,
+  type PerformanceMetrics,
+  type RecommendedStrategy,
+  type ScoreArea,
+} from "@/lib/analysis-types";
 import { isOllamaModel, OLLAMA_MODELS } from "@/lib/ollama-models";
 
 const OLLAMA_URL = "http://localhost:11434/api/chat";
+
+type OllamaCallMetrics = {
+  requestMs: number;
+  totalDurationNs: number | null;
+  loadDurationNs: number | null;
+  promptEvalCount: number | null;
+  promptEvalDurationNs: number | null;
+  evalCount: number | null;
+  evalDurationNs: number | null;
+};
+
+type PerformanceAccumulator = {
+  requestStartedAt: number;
+  ollamaRequestMs: number;
+  jsonParseMs: number;
+  calls: OllamaCallMetrics[];
+};
 
 async function readFounderProfile() {
   const filePath = path.join(process.cwd(), "founder-profile.md");
@@ -34,6 +59,11 @@ function extractJson(raw: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function optionalNumber(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function contentItemText(item: unknown): string {
@@ -76,6 +106,7 @@ function isClearlyVaguePhrase(idea: string) {
 }
 
 async function callOllama(model: string, messages: { role: string; content: string }[], maxTokens: number) {
+  const requestStartedAt = performance.now();
   const response = await fetch(OLLAMA_URL, {
     method: "POST",
     headers: {
@@ -104,22 +135,104 @@ async function callOllama(model: string, messages: { role: string; content: stri
   }
 
   const rawResponse: unknown = await response.json();
-  if (typeof rawResponse === "string") return rawResponse;
+  const requestMs = performance.now() - requestStartedAt;
+  const metricsSource = isRecord(rawResponse) ? rawResponse : {};
+  const metrics: OllamaCallMetrics = {
+    requestMs,
+    totalDurationNs: optionalNumber(metricsSource.total_duration),
+    loadDurationNs: optionalNumber(metricsSource.load_duration),
+    promptEvalCount: optionalNumber(metricsSource.prompt_eval_count),
+    promptEvalDurationNs: optionalNumber(metricsSource.prompt_eval_duration),
+    evalCount: optionalNumber(metricsSource.eval_count),
+    evalDurationNs: optionalNumber(metricsSource.eval_duration),
+  };
+
+  if (typeof rawResponse === "string") return { assistantText: rawResponse, metrics };
   if (isRecord(rawResponse)) {
     const firstChoice = Array.isArray(rawResponse.choices) ? rawResponse.choices[0] : rawResponse;
     const assistantText =
       normalizeAssistantContent(firstChoice) || normalizeAssistantContent(rawResponse);
-    if (assistantText) return assistantText;
+    if (assistantText) return { assistantText, metrics };
   }
 
   throw new Error("Ollama returned an empty assistant response.");
+}
+
+function timedExtractJson(raw: string, accumulator: PerformanceAccumulator) {
+  const startedAt = performance.now();
+  try {
+    return extractJson(raw);
+  } finally {
+    accumulator.jsonParseMs += performance.now() - startedAt;
+  }
+}
+
+function sumAvailable(calls: OllamaCallMetrics[], field: keyof OllamaCallMetrics) {
+  const values = calls
+    .map((call) => call[field])
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return values.length > 0 ? values.reduce((total, value) => total + value, 0) : null;
+}
+
+function roundMetric(value: number, precision = 1) {
+  const factor = 10 ** precision;
+  return Math.round(value * factor) / factor;
+}
+
+function buildPerformance(model: string, accumulator: PerformanceAccumulator): PerformanceMetrics {
+  const requestFinishedAt = Date.now();
+  const totalDurationNs = sumAvailable(accumulator.calls, "totalDurationNs");
+  const loadDurationNs = sumAvailable(accumulator.calls, "loadDurationNs");
+  const promptTokens = sumAvailable(accumulator.calls, "promptEvalCount");
+  const outputTokens = sumAvailable(accumulator.calls, "evalCount");
+  const promptDurationNs = sumAvailable(accumulator.calls, "promptEvalDurationNs");
+  const outputDurationNs = sumAvailable(accumulator.calls, "evalDurationNs");
+  const tokensPerSecond = (tokens: number | null, durationNs: number | null) =>
+    tokens !== null && durationNs !== null && durationNs > 0
+      ? roundMetric(tokens / (durationNs / 1_000_000_000), 2)
+      : null;
+
+  return {
+    model,
+    requestStartedAt: new Date(accumulator.requestStartedAt).toISOString(),
+    requestFinishedAt: new Date(requestFinishedAt).toISOString(),
+    totalRequestMs: roundMetric(requestFinishedAt - accumulator.requestStartedAt),
+    ollamaRequestMs: roundMetric(accumulator.ollamaRequestMs),
+    ollamaTotalMs: totalDurationNs === null ? null : roundMetric(totalDurationNs / 1_000_000),
+    ollamaGenerationMs: outputDurationNs === null ? null : roundMetric(outputDurationNs / 1_000_000),
+    modelLoadMs: loadDurationNs === null ? null : roundMetric(loadDurationNs / 1_000_000),
+    promptTokens,
+    outputTokens,
+    promptTokensPerSecond: tokensPerSecond(promptTokens, promptDurationNs),
+    outputTokensPerSecond: tokensPerSecond(outputTokens, outputDurationNs),
+    jsonParseMs: roundMetric(accumulator.jsonParseMs, 2),
+  };
+}
+
+function recordOllamaMetrics(accumulator: PerformanceAccumulator, metrics: OllamaCallMetrics) {
+  accumulator.calls.push(metrics);
+  accumulator.ollamaRequestMs += metrics.requestMs;
+}
+
+function logPerformance(metrics: PerformanceMetrics) {
+  console.info(
+    [
+      "[Analyzer performance]",
+      `model=${metrics.model}`,
+      `totalRequestMs=${metrics.totalRequestMs}`,
+      `ollamaRequestMs=${metrics.ollamaRequestMs}`,
+      `promptTokens=${metrics.promptTokens ?? "unavailable"}`,
+      `outputTokens=${metrics.outputTokens ?? "unavailable"}`,
+      `outputTokensPerSecond=${metrics.outputTokensPerSecond ?? "unavailable"}`,
+    ].join("\n")
+  );
 }
 
 function normalizeClarification(
   parsed: Record<string, unknown>,
   idea: string,
   isExtremelyVague: boolean
-): ClarificationResponse {
+): Omit<ClarificationResponse, "performance"> {
   const missingFieldSet = new Set(
     normalizeArrayField(parsed.missingFields).filter(isIntakeFieldKey)
   );
@@ -193,7 +306,115 @@ function normalizeScore(
   };
 }
 
+const STRATEGY_LABELS: Record<RecommendedStrategy, string> = {
+  clarify_more: "Clarify more",
+  research_first: "Research first",
+  test_manually_first: "Test manually first",
+  build_tiny_prototype: "Build a tiny prototype",
+  build_software_mvp: "Build a software MVP",
+  pause: "Pause",
+  kill: "Kill",
+};
+
+function isRecommendedStrategy(value: unknown): value is RecommendedStrategy {
+  return typeof value === "string" && value in STRATEGY_LABELS;
+}
+
+function legacyStrategy(value: unknown): RecommendedStrategy {
+  switch (value) {
+    case "test_manually_first":
+      return "test_manually_first";
+    case "build_later":
+      return "research_first";
+    case "pause":
+      return "pause";
+    case "kill":
+      return "kill";
+    default:
+      return "research_first";
+  }
+}
+
+function isScoreArea(value: unknown): value is ScoreArea {
+  return typeof value === "string" && SCORE_AREAS.some((area) => area === value);
+}
+
+function normalizeScoreImprovementRecommendations(value: unknown) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter(isRecord)
+    .filter((item) => isScoreArea(item.scoreArea))
+    .map((item) => ({
+      scoreArea: item.scoreArea,
+      currentIssue: String(item.currentIssue ?? "").trim(),
+      recommendation: String(item.recommendation ?? "").trim(),
+      whyItCouldImproveTheScore: String(item.whyItCouldImproveTheScore ?? "").trim(),
+      evidenceToCollect: String(item.evidenceToCollect ?? "").trim(),
+    }))
+    .filter((item) => item.recommendation && item.evidenceToCollect)
+    .slice(0, 4);
+}
+
+const SCORE_RECOMMENDATION_FALLBACKS: Record<
+  ScoreArea,
+  { recommendation: string; whyItCouldImproveTheScore: string; evidenceToCollect: string }
+> = {
+  "Founder Fit": {
+    recommendation: "Narrow the first test to a customer group you can reach directly and serve manually.",
+    whyItCouldImproveTheScore:
+      "Direct access and hands-on testing could demonstrate stronger founder-market fit.",
+    evidenceToCollect: "Documented access to target users and completed manual tests with them.",
+  },
+  "Pain / Desire": {
+    recommendation: "Interview target users about the last time they experienced the problem and what they did next.",
+    whyItCouldImproveTheScore:
+      "Observed urgency, frequency, and workaround behavior could support a stronger pain score.",
+    evidenceToCollect: "Repeated examples of recent pain, existing workarounds, and time or money already spent.",
+  },
+  "MVP Testability": {
+    recommendation: "Reduce the first test to one core assumption that can be tested within seven days.",
+    whyItCouldImproveTheScore:
+      "A cheaper and faster test could make the riskiest assumption easier to validate.",
+    evidenceToCollect: "A completed manual or tiny-prototype test with measurable success and failure criteria.",
+  },
+  "Commercial Potential": {
+    recommendation: "Test payment intent with a specific buyer, price, and concrete offer.",
+    whyItCouldImproveTheScore:
+      "Real payment behavior could demonstrate budget and willingness to pay.",
+    evidenceToCollect: "Paid pilots, deposits, pre-orders, or explicit buyer commitments at a stated price.",
+  },
+};
+
+function fallbackScoreImprovementRecommendation(parsed: Record<string, unknown>) {
+  const assessments: { scoreArea: ScoreArea; assessment: Record<string, unknown> }[] = [
+    { scoreArea: "Founder Fit", assessment: isRecord(parsed.founderFit) ? parsed.founderFit : {} },
+    { scoreArea: "Pain / Desire", assessment: isRecord(parsed.painOrDesire) ? parsed.painOrDesire : {} },
+    { scoreArea: "MVP Testability", assessment: isRecord(parsed.mvpTestability) ? parsed.mvpTestability : {} },
+    {
+      scoreArea: "Commercial Potential",
+      assessment: isRecord(parsed.commercialPotential) ? parsed.commercialPotential : {},
+    },
+  ];
+  const weakest = assessments.sort(
+    (a, b) => Number(a.assessment.score ?? 1) - Number(b.assessment.score ?? 1)
+  )[0];
+  const fallback = SCORE_RECOMMENDATION_FALLBACKS[weakest.scoreArea];
+
+  return {
+    scoreArea: weakest.scoreArea,
+    currentIssue: String(weakest.assessment.uncertainty ?? "The strongest evidence is still missing."),
+    ...fallback,
+  };
+}
+
 export async function POST(req: NextRequest) {
+  const performanceAccumulator: PerformanceAccumulator = {
+    requestStartedAt: Date.now(),
+    ollamaRequestMs: 0,
+    jsonParseMs: 0,
+    calls: [],
+  };
   let body: { idea?: unknown; model?: unknown } = {};
 
   try {
@@ -222,7 +443,7 @@ export async function POST(req: NextRequest) {
     : "Founder profile is not available. Founder fit cannot be reliably assessed from the idea alone.";
 
   try {
-    const intakeText = await callOllama(
+    const intakeResult = await callOllama(
       model,
       [
         {
@@ -251,16 +472,22 @@ ${idea}`,
       ],
       450
     );
+    recordOllamaMetrics(performanceAccumulator, intakeResult.metrics);
 
-    const intake = extractJson(intakeText);
+    const intake = timedExtractJson(intakeResult.assistantText, performanceAccumulator);
     const isExtremelyVague = isClearlyVaguePhrase(idea);
     const needsClarification = isExtremelyVague || intake.status !== "ready";
 
     if (needsClarification) {
-      return NextResponse.json(normalizeClarification(intake, idea, isExtremelyVague));
+      const performance = buildPerformance(model, performanceAccumulator);
+      logPerformance(performance);
+      return NextResponse.json({
+        ...normalizeClarification(intake, idea, isExtremelyVague),
+        performance,
+      });
     }
 
-    const assistantText = await callOllama(
+    const analysisResult = await callOllama(
       model,
       [
         {
@@ -270,7 +497,7 @@ ${idea}`,
         },
         {
           role: "user",
-          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, smallestViableWedge, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, manualValidationTest, questionsToAskUsers, evidenceNeededBeforeBuilding, recommendedNextAction, buildDecision.
+          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, smallestViableWedge, firstTestableVersion, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, scoreImprovementRecommendations, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, manualValidationTest, questionsToAskUsers, evidenceNeededBeforeBuilding, recommendedNextAction, recommendedStrategy, recommendedStrategyLabel, strategyReason.
 
 Each of founderFit, painOrDesire, mvpTestability, and commercialPotential must be an object with exactly:
 score: integer from 1 to 10
@@ -301,6 +528,26 @@ confidenceLevel must be "low", "medium", or "high":
 - medium: enough detail to analyze but little real-world proof
 - high: strong evidence such as customer data, payment signals, or direct user access
 
+scoreImprovementRecommendations must contain 1 to 4 practical recommendations focused on the weakest or most uncertain scores. Each item must contain exactly:
+scoreArea: exactly one of "Founder Fit", "Pain / Desire", "MVP Testability", "Commercial Potential"
+currentIssue: the specific weakness or uncertainty
+recommendation: a practical refinement, exploration, or validation action
+whyItCouldImproveTheScore: explain why the action could justify a higher score without promising it will
+evidenceToCollect: the concrete signal that would justify reassessment
+
+firstTestableVersion means the simplest version that can be put in front of real users to test the core assumption. Keep smallestViableWedge for backward compatibility, but make firstTestableVersion more concrete.
+
+recommendedStrategy must be exactly one of:
+- clarify_more: the idea is still underspecified
+- research_first: market or user context is too unknown
+- test_manually_first: demand or willingness to pay is unproven and a manual test is possible
+- build_tiny_prototype: a very small prototype is the best way to test behavior, but a full product is premature
+- build_software_mvp: the idea is specific and testable, has some evidence, and software is genuinely needed
+- pause: interesting but not currently high priority
+- kill: weak pain, fit, and commercial potential make further testing unattractive
+
+Do not default every idea to test_manually_first. Recommend build_tiny_prototype when software is the smallest useful behavioral test. Recommend research_first when customer understanding is the main gap. Recommend build_software_mvp only when evidence and necessity justify it. recommendedStrategyLabel is a readable label. strategyReason must explain why this strategy is the right next level of commitment.
+
 Prefer conservative scores. If evidence is missing, say so clearly. Focus on the smallest useful version and separate future vision from MVP reality. Identify what not to build yet. The manualValidationTest object is mandatory. steps must contain 3 to 7 concrete steps. successCriteria and failureCriteria must each contain 2 to 4 measurable criteria. timeRequired and costEstimate must be realistic and specific. The test must be possible within 7 days using existing tools such as phone camera, Google Drive, WhatsApp, Google Forms, payment links, manual editing, spreadsheets, or direct outreach. Do not recommend building software as the first validation test unless there is evidence of demand. Return only valid JSON. No markdown or commentary outside JSON.
 
 Business idea:
@@ -309,15 +556,16 @@ ${idea}
 ${founderProfileSection}`,
         },
       ],
-      1400
+      1900
     );
+    recordOllamaMetrics(performanceAccumulator, analysisResult.metrics);
 
     let parsed: Record<string, unknown>;
     try {
-      parsed = extractJson(assistantText);
+      parsed = timedExtractJson(analysisResult.assistantText, performanceAccumulator);
     } catch (parseError) {
       throw new Error(
-        `Unable to parse JSON from Ollama response: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response: ${assistantText.slice(0, 300)}`
+        `Unable to parse JSON from Ollama response: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response: ${analysisResult.assistantText.slice(0, 300)}`
       );
     }
 
@@ -363,6 +611,25 @@ ${founderProfileSection}`,
     parsed.confidenceLevel = ["low", "medium", "high"].includes(String(parsed.confidenceLevel))
       ? String(parsed.confidenceLevel)
       : "low";
+    parsed.firstTestableVersion =
+      String(parsed.firstTestableVersion ?? parsed.smallestViableWedge ?? "").trim();
+    parsed.smallestViableWedge =
+      String(parsed.smallestViableWedge ?? parsed.firstTestableVersion ?? "").trim();
+    const scoreImprovementRecommendations = normalizeScoreImprovementRecommendations(
+      parsed.scoreImprovementRecommendations
+    );
+    parsed.scoreImprovementRecommendations =
+      scoreImprovementRecommendations.length > 0
+        ? scoreImprovementRecommendations
+        : [fallbackScoreImprovementRecommendation(parsed)];
+    const recommendedStrategy = isRecommendedStrategy(parsed.recommendedStrategy)
+      ? parsed.recommendedStrategy
+      : legacyStrategy(parsed.buildDecision);
+    parsed.recommendedStrategy = recommendedStrategy;
+    parsed.recommendedStrategyLabel = STRATEGY_LABELS[recommendedStrategy];
+    parsed.strategyReason =
+      String(parsed.strategyReason ?? parsed.recommendedNextAction ?? "").trim() ||
+      "This strategy matches the current evidence and uncertainty level.";
     delete parsed.founderFitScore;
     delete parsed.founderFitReason;
     delete parsed.painOrDesireScore;
@@ -372,7 +639,10 @@ ${founderProfileSection}`,
     delete parsed.commercialPotentialScore;
     delete parsed.commercialPotentialReason;
     delete parsed.scoreCalibration;
+    delete parsed.buildDecision;
     parsed.status = "analysis";
+    parsed.performance = buildPerformance(model, performanceAccumulator);
+    logPerformance(parsed.performance as PerformanceMetrics);
 
     return NextResponse.json(parsed);
   } catch (error) {

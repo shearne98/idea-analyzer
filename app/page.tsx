@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AnalysisLoader } from "@/components/AnalysisLoader";
+import { PerformanceDetails } from "@/components/PerformanceDetails";
 import {
   INTAKE_FIELDS,
   type AnalysisResponse,
@@ -36,27 +37,16 @@ export default function Home() {
     return typeof value === "string" && value.trim().length > 0;
   };
 
-  const buildDecisionLabel = (decision: AnalysisResponse["buildDecision"]) => {
-    switch (decision) {
-      case "test_manually_first":
-        return "Test manually first";
-      case "build_later":
-        return "Build later";
-      case "pause":
-        return "Pause";
-      case "kill":
-        return "Kill";
-      default:
-        return decision;
-    }
-  };
-
-  const buildDecisionStyles = (decision: AnalysisResponse["buildDecision"]) => {
-    switch (decision) {
+  const strategyStyles = (strategy: AnalysisResponse["recommendedStrategy"]) => {
+    switch (strategy) {
+      case "clarify_more":
+      case "research_first":
+        return "border-sky-200 bg-sky-50 text-sky-800";
       case "test_manually_first":
         return "border-amber-200 bg-amber-50 text-amber-800";
-      case "build_later":
-        return "border-sky-200 bg-sky-50 text-sky-800";
+      case "build_tiny_prototype":
+      case "build_software_mvp":
+        return "border-emerald-200 bg-emerald-50 text-emerald-800";
       case "pause":
         return "border-slate-300 bg-slate-100 text-slate-700";
       case "kill":
@@ -258,6 +248,9 @@ export default function Home() {
             >
               Analyze with added context
             </button>
+            <div className="mt-6">
+              <PerformanceDetails performance={clarification.performance} />
+            </div>
           </section>
         ) : null}
 
@@ -280,26 +273,57 @@ export default function Home() {
                     Recommended decision
                   </p>
                   <span
-                    className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${buildDecisionStyles(result.buildDecision)}`}
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${strategyStyles(result.recommendedStrategy)}`}
                   >
-                    {buildDecisionLabel(result.buildDecision)}
+                    {result.recommendedStrategyLabel}
                   </span>
                 </div>
                 <p className="mt-4 text-lg font-semibold leading-7 text-slate-900 sm:text-xl">
                   {result.oneSentenceVerdict}
                 </p>
-                {hasContent(result.corePainOrDesire) ? (
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{result.corePainOrDesire}</p>
+                {hasContent(result.strategyReason) ? (
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{result.strategyReason}</p>
                 ) : null}
               </div>
 
-              {hasContent(result.smallestViableWedge) ? (
+              {hasContent(result.firstTestableVersion) ? (
                 <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-100 sm:p-6">
-                  <h3 className="text-base font-semibold text-slate-900">Smallest Viable Wedge</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{result.smallestViableWedge}</p>
+                  <h3 className="text-base font-semibold text-slate-900">First Testable Version</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{result.firstTestableVersion}</p>
                 </div>
               ) : null}
             </div>
+
+            {result.scoreImprovementRecommendations.length > 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
+                <h2 className="text-lg font-semibold tracking-tight text-slate-950">How To Improve The Evidence</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Practical changes and validation work that could justify stronger scores.
+                </p>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  {result.scoreImprovementRecommendations.map((item, index) => (
+                    <div key={`${item.scoreArea}-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{item.scoreArea}</p>
+                      <p className="mt-3 text-sm font-semibold leading-6 text-slate-900">{item.recommendation}</p>
+                      <dl className="mt-4 space-y-3 text-xs leading-5 text-slate-600">
+                        <div>
+                          <dt className="font-semibold text-slate-700">Current issue</dt>
+                          <dd className="mt-1">{item.currentIssue}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-semibold text-slate-700">Why it could help</dt>
+                          <dd className="mt-1">{item.whyItCouldImproveTheScore}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-semibold text-slate-700">Evidence to collect</dt>
+                          <dd className="mt-1">{item.evidenceToCollect}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="grid gap-5 sm:grid-cols-2">
               {hasContent(result.strongestVersion) ? (
@@ -492,6 +516,8 @@ export default function Home() {
                 <p className="mt-3 text-base font-semibold leading-7 text-slate-900">{result.recommendedNextAction}</p>
               </div>
             ) : null}
+
+            <PerformanceDetails performance={result.performance} />
           </section>
         ) : null}
       </div>
