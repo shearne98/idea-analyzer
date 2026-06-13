@@ -2,46 +2,19 @@
 
 import { useState } from "react";
 import { AnalysisLoader } from "@/components/AnalysisLoader";
+import {
+  INTAKE_FIELDS,
+  type AnalysisResponse,
+  type AnalyzeResponse,
+  type ClarificationResponse,
+} from "@/lib/analysis-types";
 import { DEFAULT_OLLAMA_MODEL, OLLAMA_MODELS, type OllamaModel } from "@/lib/ollama-models";
-
-type ManualTest = {
-  goal: string;
-  steps: string[];
-  successCriteria: string[];
-  failureCriteria: string[];
-  timeRequired: string;
-  costEstimate: string;
-};
-
-type AnalysisResult = {
-  ideaSummary: string;
-  oneSentenceVerdict: string;
-  strongestVersion: string;
-  smallestViableWedge: string;
-  targetCustomer: string;
-  corePainOrDesire: string;
-  founderFitScore: number;
-  founderFitReason: string;
-  painOrDesireScore: number;
-  painOrDesireReason: string;
-  mvpTestabilityScore: number;
-  mvpTestabilityReason: string;
-  commercialPotentialScore: number;
-  commercialPotentialReason: string;
-  scoreCalibration: string;
-  mostDangerousAssumption: string;
-  whyThisMightFail: string[];
-  whatNotToBuildYet: string[];
-  manualValidationTest: ManualTest;
-  questionsToAskUsers: string[];
-  evidenceNeededBeforeBuilding: string[];
-  recommendedNextAction: string;
-  buildDecision: "build_later" | "test_manually_first" | "pause" | "kill";
-};
 
 export default function Home() {
   const [idea, setIdea] = useState("");
-  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [result, setResult] = useState<AnalysisResponse | null>(null);
+  const [clarification, setClarification] = useState<ClarificationResponse | null>(null);
+  const [additionalContext, setAdditionalContext] = useState("");
   const [selectedModel, setSelectedModel] = useState<OllamaModel>(DEFAULT_OLLAMA_MODEL);
   const [analyzedModel, setAnalyzedModel] = useState<OllamaModel | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -63,7 +36,7 @@ export default function Home() {
     return typeof value === "string" && value.trim().length > 0;
   };
 
-  const buildDecisionLabel = (decision: AnalysisResult["buildDecision"]) => {
+  const buildDecisionLabel = (decision: AnalysisResponse["buildDecision"]) => {
     switch (decision) {
       case "test_manually_first":
         return "Test manually first";
@@ -78,7 +51,7 @@ export default function Home() {
     }
   };
 
-  const buildDecisionStyles = (decision: AnalysisResult["buildDecision"]) => {
+  const buildDecisionStyles = (decision: AnalysisResponse["buildDecision"]) => {
     switch (decision) {
       case "test_manually_first":
         return "border-amber-200 bg-amber-50 text-amber-800";
@@ -93,11 +66,12 @@ export default function Home() {
     }
   };
 
-  async function handleAnalyze() {
+  async function analyzeIdea(ideaToAnalyze: string) {
     setError("");
     setResult(null);
+    setClarification(null);
     setAnalyzedModel(null);
-    if (!idea.trim()) {
+    if (!ideaToAnalyze.trim()) {
       setError("Please enter a business idea before analyzing.");
       return;
     }
@@ -111,22 +85,43 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ idea: idea.trim(), model: requestedModel }),
+        body: JSON.stringify({ idea: ideaToAnalyze.trim(), model: requestedModel }),
       });
 
-      const data = await response.json();
+      const data: AnalyzeResponse & { error?: string } = await response.json();
       if (!response.ok) {
         setError(data?.error || "Analysis failed. Please try again.");
         return;
       }
 
-      setResult(data);
-      setAnalyzedModel(requestedModel);
+      if (data.status === "needs_clarification") {
+        setClarification(data);
+      } else {
+        setResult(data);
+        setAnalyzedModel(requestedModel);
+      }
     } catch {
       setError("Unable to connect to the analysis service. Check your network or make sure Ollama is running.");
     } finally {
       setIsLoading(false);
     }
+  }
+
+  function handleAnalyze() {
+    setAdditionalContext("");
+    void analyzeIdea(idea);
+  }
+
+  function handleAnalyzeWithContext() {
+    if (!additionalContext.trim()) {
+      setError("Add a little more context before analyzing again.");
+      return;
+    }
+
+    const richerIdea = `${idea.trim()}\n\nAdditional context:\n${additionalContext.trim()}`;
+    setIdea(richerIdea);
+    setAdditionalContext("");
+    void analyzeIdea(richerIdea);
   }
 
   return (
@@ -186,6 +181,85 @@ export default function Home() {
         </div>
 
         {isLoading ? <AnalysisLoader /> : null}
+
+        {clarification && !isLoading ? (
+          <section className="mb-10 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/60 sm:p-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">Idea intake</p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">More context needed</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+              This idea is too vague to analyze without inventing assumptions.
+            </p>
+            <p className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
+              {clarification.reason}
+            </p>
+
+            {clarification.missingFields.length > 0 ? (
+              <div className="mt-6">
+                <h3 className="text-sm font-semibold text-slate-900">Missing context</h3>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {clarification.missingFields.map((fieldKey) => {
+                    const field = INTAKE_FIELDS.find((candidate) => candidate.key === fieldKey);
+                    if (!field) return null;
+
+                    return (
+                      <div key={field.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-sm font-semibold text-slate-900">{field.label}</p>
+                        <p className="mt-1 text-sm leading-6 text-slate-600">{field.description}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {clarification.clarifyingQuestions.length > 0 ? (
+              <div className="mt-6">
+                <h3 className="text-sm font-semibold text-slate-900">Answer these questions</h3>
+                <ol className="mt-3 space-y-3">
+                  {clarification.clarifyingQuestions.map((question, index) => (
+                    <li key={question} className="flex gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600">
+                      <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+                        {index + 1}
+                      </span>
+                      <span>{question}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
+
+            {clarification.possibleDirections.length > 0 ? (
+              <div className="mt-6 rounded-2xl border border-sky-100 bg-sky-50/60 p-5">
+                <h3 className="text-sm font-semibold text-slate-900">Possible directions</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Examples only, not assumptions about your idea.</p>
+                <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-slate-600 marker:text-sky-400">
+                  {clarification.possibleDirections.map((direction) => (
+                    <li key={direction}>{direction}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <label htmlFor="additional-context" className="mt-6 block text-sm font-semibold text-slate-900">
+              Add more detail
+            </label>
+            <textarea
+              id="additional-context"
+              rows={6}
+              value={additionalContext}
+              onChange={(event) => setAdditionalContext(event.target.value)}
+              placeholder="Answer the questions above in your own words..."
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-900 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+            />
+            <button
+              type="button"
+              onClick={handleAnalyzeWithContext}
+              className="mt-4 inline-flex items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              Analyze with added context
+            </button>
+          </section>
+        ) : null}
 
         {result ? (
           <section className="space-y-6 pb-12">
