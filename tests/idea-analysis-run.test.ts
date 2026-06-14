@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createIdeaAnalysisRunner,
   IdeaAnalysisRunError,
@@ -306,6 +306,169 @@ describe("Idea analysis run", () => {
     expect(calls[1].messages.at(-1)?.content).toContain(
       "The founder organizes a weekly basketball run."
     );
+  });
+
+  it("marks Founder Fit unavailable when no founder profile exists", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        founderFit: {
+          score: 9,
+          reason: "The founder appears highly capable.",
+          evidence: ["The founder has deep industry experience."],
+          uncertainty: "None.",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed idea with a target customer, problem, solution, and manual test.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.founderFit.score).toBeNull();
+    expect(result.founderFit.label).toBe("Not available");
+    expect(result.founderFit.evidence).toEqual([]);
+    expect(result.founderFit.uncertainty).toMatch(/founder profile/i);
+  });
+
+  it("normalizes malformed score objects into complete conservative assessments", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        painOrDesire: {
+          score: "not-a-number",
+          reason: "",
+          evidence: " ",
+          uncertainty: "",
+        },
+        mvpTestability: null,
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed idea with no real-world evidence yet.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.painOrDesire).toMatchObject({
+      score: 1,
+      label: "Very weak",
+      evidence: [],
+    });
+    expect(result.painOrDesire.reason).toBeTruthy();
+    expect(result.painOrDesire.uncertainty).toBeTruthy();
+    expect(result.mvpTestability).toMatchObject({
+      score: 1,
+      label: "Very weak",
+      evidence: [],
+    });
+  });
+
+  it("downgrades unsupported high confidence", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        confidenceLevel: "high",
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed idea that describes a manual test but contains no customer data or payment proof.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.confidenceLevel).toBe("medium");
+  });
+
+  it("preserves high confidence when strong real-world proof is provided", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        confidenceLevel: "high",
+        commercialPotential: {
+          score: 8,
+          reason: "Five customers have already paid.",
+          evidence: ["Five existing customers paid GBP 100 for the manual service."],
+          uncertainty: "Retention is not yet known.",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed idea with five existing paying customers.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.confidenceLevel).toBe("high");
+  });
+
+  it("uses founder-profile context without exposing its source text", async () => {
+    const privateProfile = "PRIVATE_FOUNDER_PROFILE_SECRET: organizes a specialist weekly meetup.";
+    const performanceLog = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { runIdeaAnalysis, calls } = createRunnerWithResponses(
+      [
+        readyIntake(),
+        completeAnalysis({
+          founderFit: {
+            score: 7,
+            reason: privateProfile,
+            evidence: [privateProfile],
+            uncertainty: "Customer access outside the meetup is unknown.",
+          },
+        }),
+      ],
+      privateProfile
+    );
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed idea related to the founder's specialist meetup.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(calls[1].messages.at(-1)?.content).toContain(privateProfile);
+    expect(JSON.stringify(result)).not.toContain(privateProfile);
+    expect(performanceLog.mock.calls.flat().join(" ")).not.toContain(privateProfile);
+    performanceLog.mockRestore();
+  });
+
+  it("removes strong proof claims that are not grounded in supplied context", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        confidenceLevel: "high",
+        commercialPotential: {
+          score: 9,
+          reason: "Customers are already paying.",
+          evidence: ["Ten customers have already paid GBP 100."],
+          uncertainty: "Retention is unknown.",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed idea with a proposed manual test but no customers or payment evidence yet.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.commercialPotential.evidence).toEqual([]);
+    expect(result.confidenceLevel).toBe("medium");
   });
 
   it("preserves organizational buyer and commitment constraints for a B2B idea", async () => {

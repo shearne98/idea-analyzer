@@ -124,6 +124,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function redactSensitiveText(value: unknown, sensitiveText: string): unknown {
+  if (!sensitiveText) return value;
+  if (typeof value === "string") {
+    return value.split(sensitiveText).join("[Founder profile detail redacted]");
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSensitiveText(item, sensitiveText));
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, redactSensitiveText(item, sensitiveText)])
+    );
+  }
+  return value;
+}
+
 function optionalNumber(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -402,6 +418,49 @@ function normalizeScore(
   };
 }
 
+function unavailableFounderFit() {
+  return {
+    score: null,
+    label: "Not available",
+    reason: "Founder Fit cannot be assessed without a founder profile.",
+    evidence: [],
+    uncertainty: "Add a founder profile to assess relevant experience, skills, and customer access.",
+  };
+}
+
+const STRONG_PROOF_CLAIM =
+  /\b(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:existing\s+)?(?:paying\s+)?customers?\b|customers?\s+(?:have\s+)?(?:already\s+)?paid\b|paid customers?\b|revenue\b|signed (?:paid )?pilot\b|purchase order\b|deposit(?:s)?\b|pre-?order(?:s)?\b|repeat(?:ed)? (?:use|purchase|payment))\b/i;
+
+function removeUnsupportedProofClaims<T extends { evidence: string[] }>(
+  assessment: T,
+  suppliedContext: string
+) {
+  const suppliedContextHasProof = STRONG_PROOF_CLAIM.test(suppliedContext);
+  return {
+    ...assessment,
+    evidence: assessment.evidence.filter(
+      (item) => suppliedContextHasProof || !STRONG_PROOF_CLAIM.test(item)
+    ),
+  };
+}
+
+function hasStrongEvidence(parsed: Record<string, unknown>) {
+  const assessments = [
+    parsed.founderFit,
+    parsed.painOrDesire,
+    parsed.mvpTestability,
+    parsed.commercialPotential,
+  ];
+  const evidence = assessments
+    .filter(isRecord)
+    .flatMap((assessment) => normalizeArrayField(assessment.evidence))
+    .join(" ");
+
+  return /\b(paid|payment|revenue|sales?|deposit|pre-?order|purchase order|signed (?:paid )?pilot|customer data|existing customers?|repeat(?:ed)? use|direct (?:customer|user) access)\b/i.test(
+    evidence
+  );
+}
+
 const STRATEGY_LABELS: Record<RecommendedStrategy, string> = {
   clarify_more: "Clarify more",
   research_first: "Research first",
@@ -657,7 +716,7 @@ ${idea}`,
         {
           role: "system",
           content:
-            "You are a skeptical product strategist. Analyze startup ideas with practical scrutiny. Scores estimate current evidence strength, not excitement. Missing evidence lowers scores. Scores above 8 are rare and require exceptional proof. Separate what is known, assumed, and uncertain. Never invent evidence or missing business context. Prefer manual validation before building software. Use the founder profile when assessing founder fit. If the founder profile is missing or empty, founder fit must remain low or uncertain. Return only valid JSON. No markdown, no commentary outside the JSON.",
+            "You are a skeptical product strategist. Analyze startup ideas with practical scrutiny. Scores estimate current evidence strength, not excitement. Missing evidence lowers scores. Scores above 8 are rare and require exceptional proof. Separate what is known, assumed, and uncertain. Never invent evidence or missing business context. Prefer manual validation before building software. Use the founder profile when assessing founder fit, but never quote or reproduce its source text. If the founder profile is missing or empty, founder fit must be marked not available and must not receive a numeric score. Return only valid JSON. No markdown, no commentary outside the JSON.",
         },
         {
           role: "user",
@@ -769,6 +828,7 @@ ${founderProfileSection}`,
     let parsed: Record<string, unknown>;
     try {
       parsed = timedExtractJson(analysisResult.assistantText, performanceAccumulator);
+      parsed = redactSensitiveText(parsed, founderProfile) as Record<string, unknown>;
     } catch (parseError) {
       throw new Error(
         `Unable to parse JSON from Ollama response: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response: ${analysisResult.assistantText.slice(0, 300)}`
@@ -820,20 +880,39 @@ ${founderProfileSection}`,
     parsed.questionsToAskUsers = keyUnknowns.map((item) => item.howToResolve);
     parsed.evidenceNeededBeforeBuilding = keyUnknowns.map((item) => item.unknown);
     parsed.recommendedNextAction = `${paymentValidation.offer} ${paymentValidation.decisionRule}`.trim();
-    parsed.founderFit = normalizeScore(parsed.founderFit, parsed.founderFitScore, parsed.founderFitReason);
-    parsed.painOrDesire = normalizeScore(parsed.painOrDesire, parsed.painOrDesireScore, parsed.painOrDesireReason);
-    parsed.mvpTestability = normalizeScore(parsed.mvpTestability, parsed.mvpTestabilityScore, parsed.mvpTestabilityReason);
-    parsed.commercialPotential = normalizeScore(
-      parsed.commercialPotential,
-      parsed.commercialPotentialScore,
-      parsed.commercialPotentialReason
+    const suppliedContext = `${idea}\n${founderProfile}`;
+    parsed.founderFit = founderProfile
+      ? removeUnsupportedProofClaims(
+          normalizeScore(parsed.founderFit, parsed.founderFitScore, parsed.founderFitReason),
+          suppliedContext
+        )
+      : unavailableFounderFit();
+    parsed.painOrDesire = removeUnsupportedProofClaims(
+      normalizeScore(parsed.painOrDesire, parsed.painOrDesireScore, parsed.painOrDesireReason),
+      suppliedContext
+    );
+    parsed.mvpTestability = removeUnsupportedProofClaims(
+      normalizeScore(parsed.mvpTestability, parsed.mvpTestabilityScore, parsed.mvpTestabilityReason),
+      suppliedContext
+    );
+    parsed.commercialPotential = removeUnsupportedProofClaims(
+      normalizeScore(
+        parsed.commercialPotential,
+        parsed.commercialPotentialScore,
+        parsed.commercialPotentialReason
+      ),
+      suppliedContext
     );
     parsed.scoreSummary =
       String(parsed.scoreSummary ?? "").trim() ||
       "The scores reflect the strength of currently provided evidence and should improve only when assumptions are validated.";
-    parsed.confidenceLevel = ["low", "medium", "high"].includes(String(parsed.confidenceLevel))
+    const requestedConfidence = ["low", "medium", "high"].includes(String(parsed.confidenceLevel))
       ? String(parsed.confidenceLevel)
       : "low";
+    parsed.confidenceLevel =
+      requestedConfidence === "high" && !hasStrongEvidence(parsed)
+        ? "medium"
+        : requestedConfidence;
     parsed.firstTestableVersion =
       String(parsed.firstTestableVersion ?? parsed.smallestViableWedge ?? "").trim();
     parsed.smallestViableWedge =

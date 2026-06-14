@@ -479,7 +479,7 @@ export default function Home() {
                         <p className="mt-1 text-xs font-medium text-slate-500">{assessment.label}</p>
                       </div>
                       <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-100 px-2 text-sm font-bold text-slate-700">
-                        {assessment.score}
+                        {assessment.score ?? "—"}
                       </span>
                     </div>
                     <p className="mt-4 text-sm leading-6 text-slate-600">{assessment.reason}</p>

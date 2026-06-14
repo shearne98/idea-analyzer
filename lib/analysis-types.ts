@@ -109,7 +109,7 @@ export type ClarificationResponse = {
 };
 
 export type ScoreAssessment = {
-  score: number;
+  score: number | null;
   label: string;
   reason: string;
   evidence: string[];
