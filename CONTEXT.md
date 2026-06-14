@@ -20,7 +20,7 @@ _Avoid_: Recommended next move, Recommended Next Action
 The preferred Validation Plan when payment or a binding financial commitment can plausibly be requested within seven days. Interest or free engagement alone does not satisfy this form of validation.
 
 **After Validation**:
-Guidance for fulfilling the promise manually for early validated customers, learning what they value, repeating the successful signal, and systematizing only after repeated proof.
+The conditional proof-building cycle that begins after the Validation Plan succeeds. Its stable principles are to fulfil the validated promise appropriately, learn from real usage, and seek measurable repeated proof that gates the next investment; it names both the proof that unlocks an investment addressing observed friction or customer value and the result that means revise, pause, or stop.
 _Avoid_: Roadmap, Next steps, If Validation Succeeds
 
 **Key Unknowns**:
