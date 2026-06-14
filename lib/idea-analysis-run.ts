@@ -617,21 +617,41 @@ function normalizeValidationPlan(parsed: Record<string, unknown>) {
 
 function normalizeAfterFirstPayment(parsed: Record<string, unknown>) {
   const value = isRecord(parsed.afterFirstPayment) ? parsed.afterFirstPayment : {};
+  const requestedDelivery = String(value.deliverManually ?? "").trim();
+  const requestedLearning = String(value.learnFromCustomers ?? "").trim();
+  const requestedRepeat = String(value.repeatBeforeScaling ?? "").trim();
   return {
     deliverManually:
-      String(value.deliverManually ?? "").trim() ||
-      "Fulfil the promise manually for the first paying customer using existing tools.",
+      requestedDelivery && !/\b(build (?:the )?full product|full platform|software mvp|scale)\b/i.test(requestedDelivery)
+        ? requestedDelivery
+        : "Fulfil the promise manually for the first validated customers using existing tools.",
     learnFromCustomers:
-      String(value.learnFromCustomers ?? "").trim() ||
-      "Observe what the customer values, what confuses them, and what would make the offer easier to buy again.",
+      requestedLearning &&
+      /\b(valued?|confus|no-brainer|refer|others|introduc|behavior|behaviour)\b/i.test(
+        requestedLearning
+      )
+        ? requestedLearning
+        : "Observe what customers valued, what confused them, what would make the offer a no-brainer, and whether they know others who want it.",
     repeatBeforeScaling:
-      String(value.repeatBeforeScaling ?? "").trim() ||
-      "Repeat the paid sale and manual delivery before systematizing or building a full product.",
+      requestedRepeat &&
+      /\b(additional|multiple|several|keep paying|repeated|two|three|\d+)\b/i.test(requestedRepeat) &&
+      !/\b(immediately|after (?:one|the first|a single)|single successful)\b/i.test(requestedRepeat)
+        ? requestedRepeat
+        : "Repeat the same validation signal and manual delivery with additional customers before systematizing, scaling, or building a full product.",
   };
 }
 
 function normalizeKeyUnknowns(parsed: Record<string, unknown>) {
   const value = Array.isArray(parsed.keyUnknowns) ? parsed.keyUnknowns : [];
+  const validationPlan = isRecord(parsed.validationPlan) ? parsed.validationPlan : {};
+  const isGenericUnknown = (unknown: string) =>
+    /\b(founder'?s? ability to build|commercial potential (?:is )?(?:unknown|unclear|not well established)|more research is needed)\b/i.test(
+      unknown
+    );
+  const resolutionContext =
+    validationPlan.testType === "7_day_payment_validation"
+      ? "Resolve this by tracking who accepts the paid offer and asking paying customers during manual delivery."
+      : "Resolve this by observing participant behavior during the Validation Plan and asking follow-up questions immediately afterward.";
   const normalized = value
     .filter(isRecord)
     .map((item) => ({
@@ -639,29 +659,55 @@ function normalizeKeyUnknowns(parsed: Record<string, unknown>) {
       howToResolve: String(item.howToResolve ?? "").trim(),
     }))
     .filter((item) => item.unknown && item.howToResolve)
-    .filter(
-      (item) =>
-        !/\b(founder'?s? ability to build|commercial potential is not well established)\b/i.test(
-          item.unknown
-        )
-    )
+    .filter((item) => !isGenericUnknown(item.unknown))
     .map((item) => ({
       ...item,
-      howToResolve: /\b(conduct market research|conduct surveys?|build a prototype)\b/i.test(
+      howToResolve: /\b(conduct|run|do) (?:a )?(?:broad )?(?:market research|surveys?)\b|\bbuild a prototype\b/i.test(
         item.howToResolve
       )
-        ? "Resolve this by observing payment behavior and asking the paying customer during manual delivery."
+        ? resolutionContext
         : item.howToResolve,
-    }))
-    .slice(0, 5);
-
-  if (normalized.length > 0) return normalized;
+    }));
 
   const questions = normalizeArrayField(parsed.questionsToAskUsers);
   const evidence = normalizeArrayField(parsed.evidenceNeededBeforeBuilding);
-  return [...questions, ...evidence]
-    .slice(0, 5)
-    .map((item) => ({ unknown: item, howToResolve: "Resolve this during payment validation or manual delivery." }));
+  const legacy = [...questions, ...evidence].map((item) => ({
+    unknown: item,
+    howToResolve: resolutionContext,
+  }));
+  const fallbacks = [
+    {
+      unknown: "Which customer segment shows the strongest commitment to this offer?",
+      howToResolve:
+        "Track acceptance, refusal, and the stated reason for each target customer approached during the Validation Plan.",
+    },
+    {
+      unknown: "Which part of the offer creates enough value for customers to act?",
+      howToResolve:
+        "Observe which outcome customers request or use, then ask validated customers what made them commit.",
+    },
+    {
+      unknown: "Can the promise be delivered manually within acceptable time, cost, and quality limits?",
+      howToResolve:
+        "Record fulfilment time, direct cost, quality problems, and customer corrections for every manual delivery.",
+    },
+    {
+      unknown: "Will the successful validation signal repeat with additional customers?",
+      howToResolve:
+        "Repeat the same offer or experiment with additional target customers before systematizing or scaling.",
+    },
+  ];
+  const seen = new Set<string>();
+
+  return [...normalized, ...legacy, ...fallbacks]
+    .filter((item) => !isGenericUnknown(item.unknown))
+    .filter((item) => {
+      const key = item.unknown.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 5);
 }
 
 const SCORE_RECOMMENDATION_FALLBACKS: Record<
@@ -872,10 +918,10 @@ Validation-plan rules:
 
 Legacy compatibility: paymentValidation should mirror validationPlan using offer for offerOrExperiment. It is retained temporarily.
 
-afterFirstPayment must contain exactly:
-- deliverManually: how to fulfil the promise for the first paying customers without a full product
-- learnFromCustomers: what to learn from delivery, including what they valued, what confused them, what would make it a no-brainer, and whether they know others who would want it
-- repeatBeforeScaling: how to repeat the sale and what repeated-payment signal should exist before systematizing or scaling
+afterFirstPayment is retained as the compatibility name for post-validation guidance and must contain exactly:
+- deliverManually: how to fulfil the promise for the first validated customers without a full product
+- learnFromCustomers: what to learn from delivery and conversations, including what they valued, what confused them, what would make it a no-brainer, and whether they know others who would want it
+- repeatBeforeScaling: how to repeat the successful validation signal with additional customers and what repeated signal should exist before systematizing or scaling
 
 keyUnknowns must contain 3 to 5 objects with exactly:
 - unknown: one critical missing piece of information that could change the offer or decision
@@ -883,7 +929,7 @@ keyUnknowns must contain 3 to 5 objects with exactly:
 
 Key-unknown rules:
 - Include only unknowns that could change the buyer, offer, price, manual delivery, or decision to repeat the sale.
-- Resolve them through the paid offer or conversations and observations with paying customers.
+- Resolve them through the Validation Plan or conversations and observations during manual delivery.
 - Do not recommend generic market research, surveys, or building a prototype.
 - Do not include broad statements such as "commercial potential is unknown" or "founder ability to build is unknown".
 

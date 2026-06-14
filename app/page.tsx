@@ -651,9 +651,9 @@ export default function Home() {
             ) : null}
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
-              <h3 className="text-lg font-semibold tracking-tight text-slate-950">After First Payment</h3>
+              <h3 className="text-lg font-semibold tracking-tight text-slate-950">After Validation</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Fulfil the promise first. Build and scale only after customers keep paying.
+                Fulfil the promise first. Build and scale only after the successful signal repeats.
               </p>
               <div className="mt-5 grid gap-4 sm:grid-cols-3">
                 {[

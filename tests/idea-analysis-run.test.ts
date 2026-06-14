@@ -775,6 +775,70 @@ describe("Idea analysis run", () => {
     });
   });
 
+  it("returns three to five decision-changing Key Unknowns with practical resolutions", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        keyUnknowns: [
+          {
+            unknown: "Commercial potential is unknown.",
+            howToResolve: "Conduct market research.",
+          },
+          {
+            unknown: "Which buyer accepts the offer first?",
+            howToResolve: "Run a broad survey.",
+          },
+        ],
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed managed service for operations teams with a concrete paid validation offer.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.keyUnknowns.length).toBeGreaterThanOrEqual(3);
+    expect(result.keyUnknowns.length).toBeLessThanOrEqual(5);
+    expect(result.keyUnknowns.map((item) => item.unknown).join(" ")).not.toMatch(
+      /commercial potential is unknown/i
+    );
+    expect(result.keyUnknowns.map((item) => item.howToResolve).join(" ")).not.toMatch(
+      /market research|broad survey|build a prototype/i
+    );
+  });
+
+  it("keeps post-validation guidance manual, learning-focused, and repetition-gated", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        afterFirstPayment: {
+          deliverManually: "Build the full product for the first customer.",
+          learnFromCustomers: "Ask whether they liked it.",
+          repeatBeforeScaling: "Scale immediately after the first successful test.",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed service idea with a concrete Validation Plan.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.afterFirstPayment.deliverManually).toMatch(/manually|existing tools/i);
+    expect(result.afterFirstPayment.deliverManually).not.toMatch(/build the full product/i);
+    expect(result.afterFirstPayment.learnFromCustomers).toMatch(
+      /valued|confused|no-brainer|refer|others/i
+    );
+    expect(result.afterFirstPayment.repeatBeforeScaling).toMatch(/repeat|additional|multiple/i);
+    expect(result.afterFirstPayment.repeatBeforeScaling).not.toMatch(/scale immediately/i);
+  });
+
   it("reports malformed model JSON as a clear analysis failure", async () => {
     const { runIdeaAnalysis } = createRunnerWithResponses([
       { assistantText: "This is not JSON.", metrics: {} },

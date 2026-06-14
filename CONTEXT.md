@@ -19,10 +19,10 @@ _Avoid_: Recommended next move, Recommended Next Action
 **7-Day Payment Validation**:
 The preferred Validation Plan when payment or a binding financial commitment can plausibly be requested within seven days. Interest or free engagement alone does not satisfy this form of validation.
 
-**After First Payment**:
-Guidance for fulfilling the promise manually for early paying customers, learning what they value, repeating the sale, and systematizing only after customers keep paying.
+**After Validation**:
+Guidance for fulfilling the promise manually for early validated customers, learning what they value, repeating the successful signal, and systematizing only after repeated proof.
 _Avoid_: Roadmap, Next steps, If Validation Succeeds
 
 **Key Unknowns**:
-The small set of critical missing information that could change the decision or offer, paired with a practical way to resolve each unknown during payment validation or manual delivery.
+The small set of critical missing information that could change the buyer, offer, Validation Plan, or decision, paired with a practical way to resolve each unknown during validation or manual delivery.
 _Avoid_: User Questions, Evidence Needed Before Building
