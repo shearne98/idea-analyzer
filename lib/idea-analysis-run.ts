@@ -62,7 +62,7 @@ export class IdeaAnalysisRunError extends Error {
   }
 }
 
-type OllamaCallMetrics = {
+export type ModelCallMetrics = {
   requestMs: number;
   totalDurationNs: number | null;
   loadDurationNs: number | null;
@@ -72,11 +72,26 @@ type OllamaCallMetrics = {
   evalDurationNs: number | null;
 };
 
+export type ModelCallResult = {
+  assistantText: string;
+  metrics: Partial<ModelCallMetrics>;
+};
+
+export type IdeaAnalysisRunnerDependencies = {
+  readFounderProfile: () => Promise<string>;
+  callModel: (
+    model: string,
+    messages: { role: string; content: string }[],
+    maxTokens: number,
+    think?: boolean
+  ) => Promise<ModelCallResult>;
+};
+
 type PerformanceAccumulator = {
   requestStartedAt: number;
   ollamaRequestMs: number;
   jsonParseMs: number;
-  calls: OllamaCallMetrics[];
+  calls: ModelCallMetrics[];
 };
 
 async function readFounderProfile() {
@@ -207,7 +222,7 @@ async function callOllama(
   const rawResponse: unknown = await response.json();
   const requestMs = performance.now() - requestStartedAt;
   const metricsSource = isRecord(rawResponse) ? rawResponse : {};
-  const metrics: OllamaCallMetrics = {
+  const metrics: ModelCallMetrics = {
     requestMs,
     totalDurationNs: optionalNumber(metricsSource.total_duration),
     loadDurationNs: optionalNumber(metricsSource.load_duration),
@@ -237,7 +252,7 @@ function timedExtractJson(raw: string, accumulator: PerformanceAccumulator) {
   }
 }
 
-function sumAvailable(calls: OllamaCallMetrics[], field: keyof OllamaCallMetrics) {
+function sumAvailable(calls: ModelCallMetrics[], field: keyof ModelCallMetrics) {
   const values = calls
     .map((call) => call[field])
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
@@ -279,9 +294,18 @@ function buildPerformance(model: string, accumulator: PerformanceAccumulator): P
   };
 }
 
-function recordOllamaMetrics(accumulator: PerformanceAccumulator, metrics: OllamaCallMetrics) {
-  accumulator.calls.push(metrics);
-  accumulator.ollamaRequestMs += metrics.requestMs;
+function recordOllamaMetrics(accumulator: PerformanceAccumulator, metrics: Partial<ModelCallMetrics>) {
+  const normalizedMetrics: ModelCallMetrics = {
+    requestMs: metrics.requestMs ?? 0,
+    totalDurationNs: metrics.totalDurationNs ?? null,
+    loadDurationNs: metrics.loadDurationNs ?? null,
+    promptEvalCount: metrics.promptEvalCount ?? null,
+    promptEvalDurationNs: metrics.promptEvalDurationNs ?? null,
+    evalCount: metrics.evalCount ?? null,
+    evalDurationNs: metrics.evalDurationNs ?? null,
+  };
+  accumulator.calls.push(normalizedMetrics);
+  accumulator.ollamaRequestMs += normalizedMetrics.requestMs;
 }
 
 function logPerformance(metrics: PerformanceMetrics) {
@@ -438,10 +462,6 @@ function normalizePaymentValidation(parsed: Record<string, unknown>) {
   const decisionRule = String(
     value.decisionRule ?? normalizeArrayField(legacy.successCriteria)[0] ?? ""
   ).trim();
-  const requiresFinancialCommitment =
-    /\b(pay|paid|payment|deposit|purchase order|signed paid pilot|binding financial commitment)\b/i.test(
-      decisionRule
-    );
 
   return {
     goal:
@@ -451,9 +471,9 @@ function normalizePaymentValidation(parsed: Record<string, unknown>) {
       String(value.offer ?? "").trim() ||
       "Offer the First Testable Version to a specific target customer at a clearly stated price.",
     steps: normalizeArrayField(value.steps ?? legacy.steps).slice(0, 7),
-    decisionRule: requiresFinancialCommitment
-      ? decisionRule
-      : "Progress only after at least one target customer pays, places a deposit, or makes an equivalent binding financial commitment within 7 days.",
+    decisionRule:
+      decisionRule ||
+      "Progress only after at least one target customer pays, places a deposit, or makes an equivalent binding financial commitment within 7 days.",
     constraints: normalizeArrayField(value.constraints ?? legacy.failureCriteria).slice(0, 3),
     timeRequired: String(value.timeRequired ?? legacy.timeRequired ?? "").trim() || "7 days",
     costEstimate: String(value.costEstimate ?? legacy.costEstimate ?? "").trim() || "€0-€50",
@@ -569,20 +589,20 @@ async function executeIdeaAnalysis({
   idea: string;
   model: OllamaModel;
   deepThinking: boolean;
-}): Promise<AnalyzeResponse> {
+}, dependencies: IdeaAnalysisRunnerDependencies): Promise<AnalyzeResponse> {
   const performanceAccumulator: PerformanceAccumulator = {
     requestStartedAt: Date.now(),
     ollamaRequestMs: 0,
     jsonParseMs: 0,
     calls: [],
   };
-  const founderProfile = await readFounderProfile();
+  const founderProfile = await dependencies.readFounderProfile();
   const runMetadata = await buildRunMetadata(model, deepThinking);
   const founderProfileSection = founderProfile
     ? `Founder profile:\n${founderProfile}`
     : "Founder profile is not available. Founder fit cannot be reliably assessed from the idea alone.";
 
-  const intakeResult = await callOllama(
+  const intakeResult = await dependencies.callModel(
       model,
       [
         {
@@ -629,7 +649,7 @@ ${idea}`,
       };
     }
 
-    const analysisResult = await callOllama(
+    const analysisResult = await dependencies.callModel(
       model,
       [
         {
@@ -849,22 +869,37 @@ ${founderProfileSection}`,
     return parsed as AnalysisResponse;
 }
 
+export function createIdeaAnalysisRunner(dependencies: IdeaAnalysisRunnerDependencies) {
+  return async function runIdeaAnalysis(input: {
+    idea: string;
+    model: OllamaModel;
+    deepThinking: boolean;
+  }): Promise<AnalyzeResponse> {
+    try {
+      return await executeIdeaAnalysis(input, dependencies);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected analysis error.";
+      const isConnectionError = /Failed to fetch|ECONNREFUSED|connect/i.test(message);
+
+      throw new IdeaAnalysisRunError(
+        isConnectionError
+          ? "Unable to connect to local Ollama at http://localhost:11434. Please make sure Ollama is running."
+          : `Analysis failed: ${message}`,
+        isConnectionError ? "ollama_unavailable" : "analysis_failed"
+      );
+    }
+  };
+}
+
+const runDefaultIdeaAnalysis = createIdeaAnalysisRunner({
+  readFounderProfile,
+  callModel: callOllama,
+});
+
 export async function runIdeaAnalysis(input: {
   idea: string;
   model: OllamaModel;
   deepThinking: boolean;
 }): Promise<AnalyzeResponse> {
-  try {
-    return await executeIdeaAnalysis(input);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unexpected analysis error.";
-    const isConnectionError = /Failed to fetch|ECONNREFUSED|connect/i.test(message);
-
-    throw new IdeaAnalysisRunError(
-      isConnectionError
-        ? "Unable to connect to local Ollama at http://localhost:11434. Please make sure Ollama is running."
-        : `Analysis failed: ${message}`,
-      isConnectionError ? "ollama_unavailable" : "analysis_failed"
-    );
-  }
+  return runDefaultIdeaAnalysis(input);
 }

@@ -12,9 +12,12 @@ _Avoid_: Analysis request, analyzer pipeline
 A concise assessment of an idea across Founder Fit, Pain / Desire, MVP Testability, and Commercial Potential. Each area explains its score and its biggest uncertainty.
 _Avoid_: Evidence Scores, How To Improve The Evidence
 
-**7-Day Payment Validation**:
-The single immediate next action recommended by an Idea analysis run. It tests a concrete offer by asking target customers to pay before the founder invests in building a full product. When immediate payment is genuinely impractical, a deposit or equivalent binding financial commitment may substitute. Interest or free engagement alone does not validate the idea.
+**Validation Plan**:
+The single immediate next action recommended by an Idea analysis run. It defines the strongest practical real-world test of the idea's most important assumption before the founder makes a larger commitment. When plausible, it should be a 7-Day Payment Validation that asks target customers for payment, a deposit, or an equivalent binding financial commitment.
 _Avoid_: Recommended next move, Recommended Next Action
+
+**7-Day Payment Validation**:
+The preferred Validation Plan when payment or a binding financial commitment can plausibly be requested within seven days. Interest or free engagement alone does not satisfy this form of validation.
 
 **After First Payment**:
 Guidance for fulfilling the promise manually for early paying customers, learning what they value, repeating the sale, and systematizing only after customers keep paying.
