@@ -1,22 +1,3 @@
-export type ManualTest = {
-  goal: string;
-  steps: string[];
-  successCriteria: string[];
-  failureCriteria: string[];
-  timeRequired: string;
-  costEstimate: string;
-};
-
-export type PaymentValidation = {
-  goal: string;
-  offer: string;
-  steps: string[];
-  decisionRule: string;
-  constraints: string[];
-  timeRequired: string;
-  costEstimate: string;
-};
-
 export type ValidationPlan = {
   testType: "7_day_payment_validation" | "non_payment_experiment";
   testTypeLabel: "7-Day Payment Validation" | "Behavioral Validation Experiment";
@@ -29,7 +10,7 @@ export type ValidationPlan = {
   costEstimate: string;
 };
 
-export type AfterFirstPayment = {
+export type AfterValidation = {
   deliverManually: string;
   learnFromCustomers: string;
   repeatBeforeScaling: string;
@@ -159,7 +140,6 @@ export type AnalysisResponse = {
   ideaSummary: string;
   oneSentenceVerdict: string;
   strongestVersion: string;
-  smallestViableWedge: string;
   firstTestableVersion: string;
   targetCustomer: string;
   corePainOrDesire: string;
@@ -174,18 +154,8 @@ export type AnalysisResponse = {
   whyThisMightFail: string[];
   whatNotToBuildYet: string[];
   validationPlan: ValidationPlan;
-  /** @deprecated Replaced by validationPlan. */
-  paymentValidation: PaymentValidation;
-  afterFirstPayment: AfterFirstPayment;
+  afterValidation: AfterValidation;
   keyUnknowns: KeyUnknown[];
-  /** @deprecated Remove after legacy saved analysis runs no longer need compatibility. */
-  manualValidationTest: ManualTest;
-  /** @deprecated Replaced by keyUnknowns. */
-  questionsToAskUsers: string[];
-  /** @deprecated Replaced by keyUnknowns. */
-  evidenceNeededBeforeBuilding: string[];
-  /** @deprecated The paymentValidation section is the immediate next action. */
-  recommendedNextAction: string;
   recommendedStrategy: RecommendedStrategy;
   recommendedStrategyLabel: string;
   strategyReason: string;

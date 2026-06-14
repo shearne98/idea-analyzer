@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -82,5 +82,44 @@ describe("saved analysis run store", () => {
     };
 
     expect(isSavedAnalysisRun(invalidRun)).toBe(false);
+  });
+
+  it("migrates legacy saved outputs to the canonical response contract", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "idea-analyzer-runs-"));
+    temporaryDirectories.push(directory);
+    const run = savedRun();
+    const legacyRun = {
+      ...run,
+      response: {
+        ...run.response,
+        status: "analysis",
+        smallestViableWedge: "Deliver the service manually.",
+        paymentValidation: {
+          goal: "Test payment.",
+          offer: "Sell one manual service for GBP 100.",
+          steps: ["Approach buyers", "Ask for payment"],
+          decisionRule: "Progress after one buyer pays GBP 100.",
+          constraints: [],
+          timeRequired: "7 days",
+          costEstimate: "GBP 0",
+        },
+        questionsToAskUsers: ["Which buyer pays first?"],
+        evidenceNeededBeforeBuilding: ["A real payment"],
+      },
+    };
+    await writeFile(
+      path.join(directory, `${run.id}.json`),
+      `${JSON.stringify(legacyRun, null, 2)}\n`,
+      "utf8"
+    );
+
+    const [migrated] = await createSavedAnalysisRunStore(directory).list();
+    expect(migrated.response).toHaveProperty("firstTestableVersion", "Deliver the service manually.");
+    expect(migrated.response).toHaveProperty("validationPlan.offerOrExperiment", "Sell one manual service for GBP 100.");
+    expect(migrated.response).toHaveProperty("keyUnknowns");
+    expect(migrated.response).not.toHaveProperty("paymentValidation");
+    expect(await readFile(path.join(directory, `${run.id}.json`), "utf8")).not.toMatch(
+      /paymentValidation|smallestViableWedge|questionsToAskUsers|evidenceNeededBeforeBuilding/
+    );
   });
 });

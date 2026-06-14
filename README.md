@@ -7,6 +7,7 @@ The collapsed **Development controls** and **Development output tools** are for 
 - Add human-readable regression prompts to the root-level `test-cases` file using `Test Case N.` headings. The app reads them automatically.
 - The maintained regression set includes the basketball platform, compliance service, and deliberately vague idea.
 - Saved outputs are written as complete JSON files under `saved-analyses/`, so they persist across browser and PC restarts.
+- Historical saved outputs using retired response fields are migrated to the canonical response contract when they are listed.
 - Saved runs can be reopened, downloaded, or deleted from the development output tools.
 - Comparison metadata includes analysis version, code version, model, deep-thinking setting, temperature, seed, timings, and token metrics.
 - Existing browser-only saves are migrated to project-local files when the saved-runs panel first loads.

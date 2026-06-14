@@ -14,57 +14,6 @@ import { combineIdeaWithClarification } from "@/lib/idea-intake";
 import { DEFAULT_OLLAMA_MODEL, OLLAMA_MODELS, type OllamaModel } from "@/lib/ollama-models";
 import type { IdeaTestCase } from "@/lib/test-cases";
 
-// TODO: Remove after legacy saved analysis runs no longer need compatibility.
-function withValidationPlanFields(response: AnalysisResponse): AnalysisResponse {
-  const legacy = response.manualValidationTest;
-  const paymentValidation = response.paymentValidation ?? {
-    goal: legacy?.goal ?? "Test whether a target customer will make a financial commitment.",
-    offer: response.firstTestableVersion ?? "Offer the First Testable Version at a stated price.",
-    steps: legacy?.steps ?? [],
-    decisionRule:
-      legacy?.successCriteria?.[0] ??
-      "Progress only after at least one target customer pays or makes a binding financial commitment within 7 days.",
-    constraints: legacy?.failureCriteria ?? [],
-    timeRequired: legacy?.timeRequired ?? "7 days",
-    costEstimate: legacy?.costEstimate ?? "",
-  };
-  const paymentLanguage = `${paymentValidation.offer} ${paymentValidation.decisionRule}`;
-  const isPaymentPlan =
-    /\b(pay(?:s|ment|able)?|paid|price|invoice|deposit|purchase order|financial commitment)\b/i.test(
-      paymentLanguage
-    );
-  return {
-    ...response,
-    validationPlan: response.validationPlan ?? {
-      testType: isPaymentPlan ? "7_day_payment_validation" : "non_payment_experiment",
-      testTypeLabel: isPaymentPlan ? "7-Day Payment Validation" : "Behavioral Validation Experiment",
-      goal: paymentValidation.goal,
-      offerOrExperiment: paymentValidation.offer,
-      steps: paymentValidation.steps,
-      decisionRule: paymentValidation.decisionRule,
-      constraints: paymentValidation.constraints,
-      timeRequired: paymentValidation.timeRequired,
-      costEstimate: paymentValidation.costEstimate,
-    },
-    paymentValidation,
-    afterFirstPayment: response.afterFirstPayment ?? {
-      deliverManually: "Fulfil the promise manually for the first paying customer.",
-      learnFromCustomers: "Learn what they valued, what confused them, and what would make the offer easier to buy again.",
-      repeatBeforeScaling: "Repeat the paid sale before systematizing or building a full product.",
-    },
-    keyUnknowns:
-      response.keyUnknowns ??
-      [
-        ...(response.evidenceNeededBeforeBuilding ?? []).map((unknown, index) => ({
-          unknown,
-          howToResolve:
-            response.questionsToAskUsers?.[index] ??
-            "Resolve this during the Validation Plan or manual delivery.",
-        })),
-      ].slice(0, 5),
-  };
-}
-
 export default function Home() {
   const [idea, setIdea] = useState("");
   const [result, setResult] = useState<AnalysisResponse | null>(null);
@@ -175,7 +124,7 @@ export default function Home() {
       if (data.status === "needs_clarification") {
         setClarification(data);
       } else {
-        setResult(withValidationPlanFields(data));
+        setResult(data);
         setAnalyzedModel(requestedModel);
         setAnalyzedWithDeepThinking(requestedDeepThinking);
       }
@@ -223,7 +172,7 @@ export default function Home() {
     setAnalyzedModel(run.response.runMetadata.model as OllamaModel);
     setAnalyzedWithDeepThinking(run.response.runMetadata.deepThinking);
     if (run.response.status === "analysis") {
-      setResult(withValidationPlanFields(run.response));
+      setResult(run.response);
       setClarification(null);
     } else {
       setClarification(run.response);
@@ -433,57 +382,85 @@ export default function Home() {
 
         {result ? (
           <section className="space-y-6 pb-12">
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/60 sm:p-9">
-              <h2 className="max-w-3xl text-2xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-3xl">
-                {result.ideaSummary}
-              </h2>
-              {analyzedModel ? (
-                <p className="mt-3 text-xs text-slate-500">
-                  Analyzed with: <span className="font-medium text-slate-600">{analyzedModel}</span>
-                  {analyzedWithDeepThinking ? " · Deep thinking" : ""}
-                </p>
-              ) : null}
-
-              <div className="mt-7 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6">
+            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
+              <div className="border-b border-slate-200 bg-slate-50/70 px-6 py-5 sm:px-9">
                 <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Recommended decision
-                  </p>
                   <span
                     className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${strategyStyles(result.recommendedStrategy)}`}
                   >
                     {result.recommendedStrategyLabel}
                   </span>
+                  {analyzedModel ? (
+                    <p className="text-xs text-slate-500">
+                      Analyzed with <span className="font-medium text-slate-600">{analyzedModel}</span>
+                      {analyzedWithDeepThinking ? " · Deep thinking" : ""}
+                    </p>
+                  ) : null}
                 </div>
-                <p className="mt-4 text-lg font-semibold leading-7 text-slate-900 sm:text-xl">
-                  {result.oneSentenceVerdict}
-                </p>
-                {hasContent(result.strategyReason) ? (
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{result.strategyReason}</p>
-                ) : null}
               </div>
-
-              {hasContent(result.firstTestableVersion) ? (
-                <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-100 sm:p-6">
-                  <h3 className="text-base font-semibold text-slate-900">First Testable Version</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{result.firstTestableVersion}</p>
-                </div>
-              ) : null}
+              <div className="p-6 sm:p-9">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Recommended direction
+                </p>
+                <h2 className="mt-3 max-w-3xl text-2xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-3xl">
+                  {result.oneSentenceVerdict}
+                </h2>
+                {hasContent(result.strategyReason) ? (
+                  <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
+                    {result.strategyReason}
+                  </p>
+                ) : null}
+                <p className="mt-6 border-t border-slate-100 pt-4 text-sm leading-6 text-slate-500">
+                  <span className="font-semibold text-slate-700">Idea:</span> {result.ideaSummary}
+                </p>
+              </div>
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">
-              {hasContent(result.strongestVersion) ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
-                  <h3 className="text-base font-semibold text-slate-900">Strongest Version</h3>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{result.strongestVersion}</p>
-                </div>
-              ) : null}
               {hasContent(result.targetCustomer) ? (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
                   <h3 className="text-base font-semibold text-slate-900">Target Customer</h3>
                   <p className="mt-3 text-sm leading-6 text-slate-600">{result.targetCustomer}</p>
                 </div>
               ) : null}
+              {hasContent(result.mostDangerousAssumption) ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
+                  <h3 className="text-base font-semibold text-slate-900">Most Dangerous Assumption</h3>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">{result.mostDangerousAssumption}</p>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
+              <h2 className="text-lg font-semibold tracking-tight text-slate-950">Product Scope</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Keep the long-term opportunity separate from what should be tested now.
+              </p>
+              <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                {hasContent(result.firstTestableVersion) ? (
+                  <div className="rounded-2xl border border-sky-200 bg-sky-50/50 p-5 lg:row-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Build or deliver now</p>
+                    <h3 className="mt-2 text-base font-semibold text-slate-900">First Testable Version</h3>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">{result.firstTestableVersion}</p>
+                  </div>
+                ) : null}
+                {hasContent(result.strongestVersion) ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <h3 className="text-base font-semibold text-slate-900">Strongest Version</h3>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">{result.strongestVersion}</p>
+                  </div>
+                ) : null}
+                {hasContent(result.whatNotToBuildYet) ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <h3 className="text-base font-semibold text-slate-900">What Not To Build Yet</h3>
+                    <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
+                      {formatList(result.whatNotToBuildYet).map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             <div>
@@ -545,30 +522,11 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="grid gap-5 sm:grid-cols-2">
-              {hasContent(result.mostDangerousAssumption) ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
-                  <h3 className="text-base font-semibold text-slate-900">Most Dangerous Assumption</h3>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{result.mostDangerousAssumption}</p>
-                </div>
-              ) : null}
-              {hasContent(result.whyThisMightFail) ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
-                  <h3 className="text-base font-semibold text-slate-900">Risks &amp; Assumptions</h3>
-                  <ul className="mt-4 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                    {formatList(result.whyThisMightFail).map((item, index) => (
-                      <li key={index}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </div>
-
-            {hasContent(result.whatNotToBuildYet) ? (
+            {hasContent(result.whyThisMightFail) ? (
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
-                <h3 className="text-base font-semibold text-slate-900">What Not To Build Yet</h3>
+                <h3 className="text-base font-semibold text-slate-900">Risks &amp; Assumptions</h3>
                 <ul className="mt-4 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                  {formatList(result.whatNotToBuildYet).map((item, index) => (
+                  {formatList(result.whyThisMightFail).map((item, index) => (
                     <li key={index}>{item}</li>
                   ))}
                 </ul>
@@ -676,9 +634,9 @@ export default function Home() {
               </p>
               <div className="mt-5 grid gap-4 sm:grid-cols-3">
                 {[
-                  { title: "Deliver manually", text: result.afterFirstPayment.deliverManually },
-                  { title: "Learn from customers", text: result.afterFirstPayment.learnFromCustomers },
-                  { title: "Repeat before scaling", text: result.afterFirstPayment.repeatBeforeScaling },
+                  { title: "Deliver manually", text: result.afterValidation.deliverManually },
+                  { title: "Learn from customers", text: result.afterValidation.learnFromCustomers },
+                  { title: "Repeat before scaling", text: result.afterValidation.repeatBeforeScaling },
                 ].map(({ title, text }) => (
                   <div key={title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-sm font-semibold text-slate-800">{title}</p>

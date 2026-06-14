@@ -394,13 +394,9 @@ function scoreLabel(score: number) {
   return "Exceptional";
 }
 
-function normalizeScore(
-  value: unknown,
-  legacyScore: unknown,
-  legacyReason: unknown
-) {
+function normalizeScore(value: unknown) {
   const assessment = isRecord(value) ? value : {};
-  const rawScore = Number(assessment.score ?? legacyScore);
+  const rawScore = Number(assessment.score);
   const score = Number.isFinite(rawScore)
     ? Math.min(10, Math.max(1, Math.round(rawScore)))
     : 1;
@@ -409,7 +405,7 @@ function normalizeScore(
     score,
     label: scoreLabel(score),
     reason:
-      String(assessment.reason ?? legacyReason ?? "").trim() ||
+      String(assessment.reason ?? "").trim() ||
       "There is not enough evidence to support a stronger score.",
     evidence: normalizeArrayField(assessment.evidence).slice(0, 5),
     uncertainty:
@@ -473,21 +469,6 @@ const STRATEGY_LABELS: Record<RecommendedStrategy, string> = {
 
 function isRecommendedStrategy(value: unknown): value is RecommendedStrategy {
   return typeof value === "string" && value in STRATEGY_LABELS;
-}
-
-function legacyStrategy(value: unknown): RecommendedStrategy {
-  switch (value) {
-    case "test_manually_first":
-      return "test_manually_first";
-    case "build_later":
-      return "research_first";
-    case "pause":
-      return "pause";
-    case "kill":
-      return "kill";
-    default:
-      return "research_first";
-  }
 }
 
 function normalizeRecommendedStrategy(
@@ -558,37 +539,14 @@ function normalizeValidationConstraints(value: unknown) {
     .slice(0, 3);
 }
 
-function normalizePaymentValidation(parsed: Record<string, unknown>) {
-  const value = isRecord(parsed.paymentValidation) ? parsed.paymentValidation : {};
-  const legacy = isRecord(parsed.manualValidationTest) ? parsed.manualValidationTest : {};
-  const decisionRule = String(
-    value.decisionRule ?? normalizeArrayField(legacy.successCriteria)[0] ?? ""
-  ).trim();
-
-  return {
-    goal:
-      String(value.goal ?? legacy.goal ?? "").trim() ||
-      "Test whether a target customer will make a real financial commitment to the offer.",
-    offer:
-      String(value.offer ?? "").trim() ||
-      "Offer the First Testable Version to a specific target customer at a clearly stated price.",
-    steps: normalizeArrayField(value.steps ?? legacy.steps).slice(0, 7),
-    decisionRule:
-      decisionRule ||
-      "Progress only after at least one target customer pays, places a deposit, or makes an equivalent binding financial commitment within 7 days.",
-    constraints: normalizeValidationConstraints(value.constraints ?? legacy.failureCriteria),
-    timeRequired: String(value.timeRequired ?? legacy.timeRequired ?? "").trim() || "7 days",
-    costEstimate: String(value.costEstimate ?? legacy.costEstimate ?? "").trim() || "€0-€50",
-  };
-}
-
 function normalizeValidationPlan(parsed: Record<string, unknown>) {
   const value = isRecord(parsed.validationPlan) ? parsed.validationPlan : {};
-  const paymentValidation = normalizePaymentValidation(parsed);
-  const offerOrExperiment = String(
-    value.offerOrExperiment ?? value.offer ?? paymentValidation.offer
-  ).trim();
-  const decisionRule = String(value.decisionRule ?? paymentValidation.decisionRule).trim();
+  const offerOrExperiment =
+    String(value.offerOrExperiment ?? "").trim() ||
+    "Offer or run the First Testable Version with a specific target customer.";
+  const decisionRule =
+    String(value.decisionRule ?? "").trim() ||
+    "Progress only after the experiment reaches a stated measurable behavior threshold.";
   const requestedType = String(value.testType ?? "").trim();
   const paymentIsBinding =
     /\b(pay(?:s|ment|able)?|paid|price|invoice|deposit|purchase order|signed paid pilot|financial commitment)\b/i.test(
@@ -605,18 +563,20 @@ function normalizeValidationPlan(parsed: Record<string, unknown>) {
       testType === "7_day_payment_validation"
         ? "7-Day Payment Validation"
         : "Behavioral Validation Experiment",
-    goal: String(value.goal ?? paymentValidation.goal).trim(),
+    goal:
+      String(value.goal ?? "").trim() ||
+      "Test the most important assumption with observable real-world behavior.",
     offerOrExperiment,
-    steps: normalizeArrayField(value.steps ?? paymentValidation.steps).slice(0, 7),
+    steps: normalizeArrayField(value.steps).slice(0, 7),
     decisionRule,
-    constraints: normalizeValidationConstraints(value.constraints ?? paymentValidation.constraints),
-    timeRequired: String(value.timeRequired ?? paymentValidation.timeRequired).trim(),
-    costEstimate: String(value.costEstimate ?? paymentValidation.costEstimate).trim(),
+    constraints: normalizeValidationConstraints(value.constraints),
+    timeRequired: String(value.timeRequired ?? "").trim() || "7 days",
+    costEstimate: String(value.costEstimate ?? "").trim() || "€0-€50",
   } as const;
 }
 
-function normalizeAfterFirstPayment(parsed: Record<string, unknown>) {
-  const value = isRecord(parsed.afterFirstPayment) ? parsed.afterFirstPayment : {};
+function normalizeAfterValidation(parsed: Record<string, unknown>) {
+  const value = isRecord(parsed.afterValidation) ? parsed.afterValidation : {};
   const requestedDelivery = String(value.deliverManually ?? "").trim();
   const requestedLearning = String(value.learnFromCustomers ?? "").trim();
   const requestedRepeat = String(value.repeatBeforeScaling ?? "").trim();
@@ -669,12 +629,6 @@ function normalizeKeyUnknowns(parsed: Record<string, unknown>) {
         : item.howToResolve,
     }));
 
-  const questions = normalizeArrayField(parsed.questionsToAskUsers);
-  const evidence = normalizeArrayField(parsed.evidenceNeededBeforeBuilding);
-  const legacy = [...questions, ...evidence].map((item) => ({
-    unknown: item,
-    howToResolve: resolutionContext,
-  }));
   const fallbacks = [
     {
       unknown: "Which customer segment shows the strongest commitment to this offer?",
@@ -699,7 +653,7 @@ function normalizeKeyUnknowns(parsed: Record<string, unknown>) {
   ];
   const seen = new Set<string>();
 
-  return [...normalized, ...legacy, ...fallbacks]
+  return [...normalized, ...fallbacks]
     .filter((item) => !isGenericUnknown(item.unknown))
     .filter((item) => {
       const key = item.unknown.toLowerCase();
@@ -840,7 +794,7 @@ ${idea}`,
         },
         {
           role: "user",
-          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, smallestViableWedge, firstTestableVersion, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, scoreImprovementRecommendations, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, validationPlan, paymentValidation, afterFirstPayment, keyUnknowns, manualValidationTest, questionsToAskUsers, evidenceNeededBeforeBuilding, recommendedNextAction, recommendedStrategy, recommendedStrategyLabel, strategyReason.
+          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, firstTestableVersion, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, scoreImprovementRecommendations, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, validationPlan, afterValidation, keyUnknowns, recommendedStrategy, recommendedStrategyLabel, strategyReason.
 
 Each of founderFit, painOrDesire, mvpTestability, and commercialPotential must be an object with exactly:
 score: integer from 1 to 10
@@ -882,7 +836,7 @@ Return at most one recommendation for each scoreArea. Keep every field brief and
 
 strongestVersion is the most compelling plausible version of the opportunity supported by the supplied context. Present it as a hypothesis to validate, never as proven fact.
 
-firstTestableVersion means the simplest version that can be put in front of real users to test the core assumption. Keep smallestViableWedge for backward compatibility, but make firstTestableVersion concrete enough to execute.
+firstTestableVersion means the simplest version that can be put in front of real users to test the core assumption. Make it concrete enough to execute.
 
 recommendedStrategy must be exactly one of:
 - clarify_more: the idea is still underspecified
@@ -916,9 +870,7 @@ Validation-plan rules:
 - Use non_payment_experiment only when payment is genuinely premature or does not test the core risk. It must still measure observable behavior with a numeric threshold.
 - Do not include inverse failure criteria. constraints are only for distinct limits such as manual fulfilment time, delivery cost, regulation, or safety.
 
-Legacy compatibility: paymentValidation should mirror validationPlan using offer for offerOrExperiment. It is retained temporarily.
-
-afterFirstPayment is retained as the compatibility name for post-validation guidance and must contain exactly:
+afterValidation must contain exactly:
 - deliverManually: how to fulfil the promise for the first validated customers without a full product
 - learnFromCustomers: what to learn from delivery and conversations, including what they valued, what confused them, what would make it a no-brainer, and whether they know others who would want it
 - repeatBeforeScaling: how to repeat the successful validation signal with additional customers and what repeated signal should exist before systematizing or scaling
@@ -932,11 +884,6 @@ Key-unknown rules:
 - Resolve them through the Validation Plan or conversations and observations during manual delivery.
 - Do not recommend generic market research, surveys, or building a prototype.
 - Do not include broad statements such as "commercial potential is unknown" or "founder ability to build is unknown".
-
-Legacy compatibility fields must still be returned for now:
-- manualValidationTest should mirror paymentValidation; successCriteria contains only decisionRule and failureCriteria contains only constraints
-- questionsToAskUsers and evidenceNeededBeforeBuilding should concisely mirror keyUnknowns
-- recommendedNextAction should concisely summarize paymentValidation
 
 Return only valid JSON. No markdown or commentary outside JSON.
 
@@ -961,41 +908,12 @@ ${founderProfileSection}`,
       );
     }
 
-    const normalizeManualTest = (value: unknown) => {
-      if (typeof value !== "object" || value === null) {
-        return {
-          goal: "",
-          steps: [],
-          successCriteria: [],
-          failureCriteria: [],
-          timeRequired: "",
-          costEstimate: "",
-        };
-      }
-
-      const test = value as Record<string, unknown>;
-      return {
-        goal: String(test.goal ?? "").trim(),
-        steps: normalizeArrayField(test.steps).slice(0, 7),
-        successCriteria: normalizeArrayField(test.successCriteria).slice(0, 5),
-        failureCriteria: normalizeArrayField(test.failureCriteria).slice(0, 5),
-        timeRequired: String(test.timeRequired ?? "").trim(),
-        costEstimate: String(test.costEstimate ?? "").trim(),
-      };
-    };
-
     parsed.whyThisMightFail = normalizeArrayField(parsed.whyThisMightFail);
     parsed.whatNotToBuildYet = normalizeArrayField(parsed.whatNotToBuildYet);
-    parsed.questionsToAskUsers = normalizeArrayField(parsed.questionsToAskUsers);
-    parsed.evidenceNeededBeforeBuilding = normalizeArrayField(parsed.evidenceNeededBeforeBuilding);
-    parsed.manualValidationTest = normalizeManualTest(parsed.manualValidationTest);
     parsed.validationPlan = normalizeValidationPlan(parsed);
-    parsed.paymentValidation = normalizePaymentValidation(parsed);
-    parsed.afterFirstPayment = normalizeAfterFirstPayment(parsed);
+    parsed.afterValidation = normalizeAfterValidation(parsed);
     parsed.keyUnknowns = normalizeKeyUnknowns(parsed);
     const validationPlan = parsed.validationPlan as ReturnType<typeof normalizeValidationPlan>;
-    const paymentValidation = parsed.paymentValidation as ReturnType<typeof normalizePaymentValidation>;
-    const keyUnknowns = parsed.keyUnknowns as ReturnType<typeof normalizeKeyUnknowns>;
     const ideaSummary = String(parsed.ideaSummary ?? idea).trim();
     const targetCustomer = String(parsed.targetCustomer ?? "").trim();
     parsed.strongestVersion =
@@ -1004,46 +922,29 @@ ${founderProfileSection}`,
         targetCustomer ? ` for ${targetCustomer}` : ""
       }, subject to real-world validation.`;
     parsed.firstTestableVersion =
-      String(parsed.firstTestableVersion ?? parsed.smallestViableWedge ?? "").trim() ||
+      String(parsed.firstTestableVersion ?? "").trim() ||
       `Use this as the First Testable Version: ${validationPlan.offerOrExperiment}`;
     parsed.whatNotToBuildYet =
       (parsed.whatNotToBuildYet as string[]).length > 0
         ? parsed.whatNotToBuildYet
         : ["A full product or capabilities beyond the First Testable Version"];
-    // TODO: Remove these legacy compatibility fields after old saved analysis runs are retired.
-    parsed.manualValidationTest = {
-      goal: paymentValidation.goal,
-      steps: paymentValidation.steps,
-      successCriteria: [paymentValidation.decisionRule],
-      failureCriteria: paymentValidation.constraints,
-      timeRequired: paymentValidation.timeRequired,
-      costEstimate: paymentValidation.costEstimate,
-    };
-    parsed.questionsToAskUsers = keyUnknowns.map((item) => item.howToResolve);
-    parsed.evidenceNeededBeforeBuilding = keyUnknowns.map((item) => item.unknown);
-    parsed.recommendedNextAction =
-      `${validationPlan.offerOrExperiment} ${validationPlan.decisionRule}`.trim();
     const suppliedContext = `${idea}\n${founderProfile}`;
     parsed.founderFit = founderProfile
       ? removeUnsupportedProofClaims(
-          normalizeScore(parsed.founderFit, parsed.founderFitScore, parsed.founderFitReason),
+          normalizeScore(parsed.founderFit),
           suppliedContext
         )
       : unavailableFounderFit();
     parsed.painOrDesire = removeUnsupportedProofClaims(
-      normalizeScore(parsed.painOrDesire, parsed.painOrDesireScore, parsed.painOrDesireReason),
+      normalizeScore(parsed.painOrDesire),
       suppliedContext
     );
     parsed.mvpTestability = removeUnsupportedProofClaims(
-      normalizeScore(parsed.mvpTestability, parsed.mvpTestabilityScore, parsed.mvpTestabilityReason),
+      normalizeScore(parsed.mvpTestability),
       suppliedContext
     );
     parsed.commercialPotential = removeUnsupportedProofClaims(
-      normalizeScore(
-        parsed.commercialPotential,
-        parsed.commercialPotentialScore,
-        parsed.commercialPotentialReason
-      ),
+      normalizeScore(parsed.commercialPotential),
       suppliedContext
     );
     parsed.scoreSummary =
@@ -1056,10 +957,7 @@ ${founderProfileSection}`,
       requestedConfidence === "high" && !hasStrongEvidence(parsed)
         ? "medium"
         : requestedConfidence;
-    parsed.firstTestableVersion =
-      String(parsed.firstTestableVersion ?? parsed.smallestViableWedge ?? "").trim();
-    parsed.smallestViableWedge =
-      String(parsed.smallestViableWedge ?? parsed.firstTestableVersion ?? "").trim();
+    parsed.firstTestableVersion = String(parsed.firstTestableVersion ?? "").trim();
     const scoreImprovementRecommendations = normalizeScoreImprovementRecommendations(
       parsed.scoreImprovementRecommendations
     );
@@ -1069,7 +967,7 @@ ${founderProfileSection}`,
         : [fallbackScoreImprovementRecommendation(parsed)];
     const requestedStrategy = isRecommendedStrategy(parsed.recommendedStrategy)
       ? parsed.recommendedStrategy
-      : legacyStrategy(parsed.buildDecision);
+      : "research_first";
     const normalizedStrategy = normalizeRecommendedStrategy(
       requestedStrategy,
       parsed
@@ -1078,24 +976,38 @@ ${founderProfileSection}`,
     parsed.recommendedStrategyLabel = STRATEGY_LABELS[normalizedStrategy.strategy];
     parsed.strategyReason =
       normalizedStrategy.reason ||
-      String(parsed.strategyReason ?? parsed.recommendedNextAction ?? "").trim() ||
+      String(parsed.strategyReason ?? "").trim() ||
       "This strategy matches the current evidence and uncertainty level.";
-    delete parsed.founderFitScore;
-    delete parsed.founderFitReason;
-    delete parsed.painOrDesireScore;
-    delete parsed.painOrDesireReason;
-    delete parsed.mvpTestabilityScore;
-    delete parsed.mvpTestabilityReason;
-    delete parsed.commercialPotentialScore;
-    delete parsed.commercialPotentialReason;
-    delete parsed.scoreCalibration;
-    delete parsed.buildDecision;
-    parsed.status = "analysis";
-    parsed.performance = buildPerformance(model, performanceAccumulator);
-    parsed.runMetadata = runMetadata;
-    logPerformance(parsed.performance as PerformanceMetrics);
+    const performance = buildPerformance(model, performanceAccumulator);
+    logPerformance(performance);
 
-    return parsed as AnalysisResponse;
+    return {
+      status: "analysis",
+      ideaSummary: parsed.ideaSummary,
+      oneSentenceVerdict: parsed.oneSentenceVerdict,
+      strongestVersion: parsed.strongestVersion,
+      firstTestableVersion: parsed.firstTestableVersion,
+      targetCustomer: parsed.targetCustomer,
+      corePainOrDesire: parsed.corePainOrDesire,
+      founderFit: parsed.founderFit,
+      painOrDesire: parsed.painOrDesire,
+      mvpTestability: parsed.mvpTestability,
+      commercialPotential: parsed.commercialPotential,
+      scoreSummary: parsed.scoreSummary,
+      confidenceLevel: parsed.confidenceLevel,
+      scoreImprovementRecommendations: parsed.scoreImprovementRecommendations,
+      mostDangerousAssumption: parsed.mostDangerousAssumption,
+      whyThisMightFail: parsed.whyThisMightFail,
+      whatNotToBuildYet: parsed.whatNotToBuildYet,
+      validationPlan: parsed.validationPlan,
+      afterValidation: parsed.afterValidation,
+      keyUnknowns: parsed.keyUnknowns,
+      recommendedStrategy: parsed.recommendedStrategy,
+      recommendedStrategyLabel: parsed.recommendedStrategyLabel,
+      strategyReason: parsed.strategyReason,
+      performance,
+      runMetadata,
+    } as AnalysisResponse;
 }
 
 export function createIdeaAnalysisRunner(dependencies: IdeaAnalysisRunnerDependencies) {

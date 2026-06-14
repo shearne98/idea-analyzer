@@ -60,16 +60,18 @@ function completeAnalysisValue(overrides: Record<string, unknown> = {}) {
     mostDangerousAssumption: "Customers will commit.",
     whyThisMightFail: ["The problem may not be urgent."],
     whatNotToBuildYet: ["A full software platform"],
-    paymentValidation: {
+    validationPlan: {
+      testType: "7_day_payment_validation",
+      testTypeLabel: "7-Day Payment Validation",
       goal: "Test commitment.",
-      offer: "A manually delivered service for GBP 100.",
+      offerOrExperiment: "A manually delivered service for GBP 100.",
       steps: ["Approach five buyers", "Ask for payment", "Deliver manually", "Review results"],
       decisionRule: "Progress after one buyer pays GBP 100 within 7 days.",
       constraints: [],
       timeRequired: "7 days",
       costEstimate: "GBP 0-50",
     },
-    afterFirstPayment: {
+    afterValidation: {
       deliverManually: "Deliver manually.",
       learnFromCustomers: "Observe what creates value.",
       repeatBeforeScaling: "Repeat the sale.",
@@ -263,16 +265,18 @@ describe("Idea analysis run", () => {
           mostDangerousAssumption: "Players will pay for clips.",
           whyThisMightFail: ["Manual editing may take too long."],
           whatNotToBuildYet: ["AI player tracking"],
-          paymentValidation: {
+          validationPlan: {
+            testType: "7_day_payment_validation",
+            testTypeLabel: "7-Day Payment Validation",
             goal: "Test whether players will pay for highlights.",
-            offer: "Three clips from one game for GBP 5.",
+            offerOrExperiment: "Three clips from one game for GBP 5.",
             steps: ["Record one game", "Offer paid highlight packs", "Deliver manually"],
             decisionRule: "Progress after at least two players pay GBP 5 within 7 days.",
             constraints: ["Manual delivery must take under three hours per game."],
             timeRequired: "7 days",
             costEstimate: "GBP 0-20",
           },
-          afterFirstPayment: {
+          afterValidation: {
             deliverManually: "Edit and send the clips manually.",
             learnFromCustomers: "Ask which clips mattered and what confused them.",
             repeatBeforeScaling: "Sell the same offer at two more games.",
@@ -300,12 +304,41 @@ describe("Idea analysis run", () => {
     if (result.status !== "analysis") throw new Error("Expected analysis response.");
     expect(result.founderFit.score).toBe(7);
     expect(result.painOrDesire.score).toBe(10);
-    expect(result.paymentValidation.decisionRule).toMatch(/two players pay GBP 5/i);
+    expect(result.validationPlan.decisionRule).toMatch(/two players pay GBP 5/i);
     expect(result.runMetadata.model).toBe("qwen3:8b");
     expect(calls).toHaveLength(2);
     expect(calls[1].messages.at(-1)?.content).toContain(
       "The founder organizes a weekly basketball run."
     );
+  });
+
+  it("returns only canonical analysis concepts without legacy compatibility fields", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis(),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed idea with a customer, problem, solution, and Validation Plan.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result).toHaveProperty("validationPlan");
+    expect(result).toHaveProperty("keyUnknowns");
+    expect(result).toHaveProperty("afterValidation");
+    for (const field of [
+      "smallestViableWedge",
+      "paymentValidation",
+      "manualValidationTest",
+      "questionsToAskUsers",
+      "evidenceNeededBeforeBuilding",
+      "recommendedNextAction",
+    ]) {
+      expect(result).not.toHaveProperty(field);
+    }
   });
 
   it("marks Founder Fit unavailable when no founder profile exists", async () => {
@@ -509,7 +542,6 @@ describe("Idea analysis run", () => {
       completeAnalysis({
         strongestVersion: "",
         firstTestableVersion: "",
-        smallestViableWedge: "",
         whatNotToBuildYet: [],
       }),
     ]);
@@ -523,7 +555,7 @@ describe("Idea analysis run", () => {
     expect(result.status).toBe("analysis");
     if (result.status !== "analysis") throw new Error("Expected analysis response.");
     expect(result.strongestVersion).toMatch(/plausible|focused/i);
-    expect(result.firstTestableVersion).toContain(result.paymentValidation.offer);
+    expect(result.firstTestableVersion).toContain(result.validationPlan.offerOrExperiment);
     expect(result.whatNotToBuildYet).toEqual(
       expect.arrayContaining([expect.stringMatching(/full|beyond|premature/i)])
     );
@@ -613,9 +645,11 @@ describe("Idea analysis run", () => {
       readyIntake(),
       completeAnalysis({
         targetCustomer: "Operations managers at small UK food manufacturers",
-        paymentValidation: {
+        validationPlan: {
+          testType: "7_day_payment_validation",
+          testTypeLabel: "7-Day Payment Validation",
           goal: "Test whether a manufacturer will commit to a compliance audit.",
-          offer: "A two-week compliance audit for GBP 150.",
+          offerOrExperiment: "A two-week compliance audit for GBP 150.",
           steps: ["Approach five manufacturers", "Ask for a paid pilot", "Deliver the audit"],
           decisionRule: "Progress after one manufacturer signs a paid pilot within 7 days.",
           constraints: [
@@ -637,8 +671,8 @@ describe("Idea analysis run", () => {
     expect(result.status).toBe("analysis");
     if (result.status !== "analysis") throw new Error("Expected analysis response.");
     expect(result.targetCustomer).toContain("food manufacturers");
-    expect(result.paymentValidation.decisionRule).toMatch(/paid pilot/i);
-    expect(result.paymentValidation.constraints).toContain(
+    expect(result.validationPlan.decisionRule).toMatch(/paid pilot/i);
+    expect(result.validationPlan.constraints).toContain(
       "The manufacturer must approve secure handling of compliance documents."
     );
   });
@@ -647,9 +681,11 @@ describe("Idea analysis run", () => {
     const { runIdeaAnalysis } = createRunnerWithResponses([
       readyIntake(),
       completeAnalysis({
-        paymentValidation: {
+        validationPlan: {
+          testType: "7_day_payment_validation",
+          testTypeLabel: "7-Day Payment Validation",
           goal: "Test whether league organizers will buy game recording.",
-          offer:
+          offerOrExperiment:
             "Offer one local league organizer a recorded game and highlight pack for GBP 150, payable by Stripe invoice.",
           steps: ["Contact five league organizers", "Send the paid offer", "Request payment"],
           decisionRule: "Progress after one organizer pays the GBP 150 Stripe invoice within 7 days.",
@@ -681,9 +717,11 @@ describe("Idea analysis run", () => {
     const { runIdeaAnalysis } = createRunnerWithResponses([
       readyIntake(),
       completeAnalysis({
-        paymentValidation: {
+        validationPlan: {
+          testType: "7_day_payment_validation",
+          testTypeLabel: "7-Day Payment Validation",
           goal: "Test whether players will buy highlights.",
-          offer: "Sell three clips to basketball players for GBP 5 by payment link.",
+          offerOrExperiment: "Sell three clips to basketball players for GBP 5 by payment link.",
           steps: ["Offer the clips", "Request payment", "Deliver manually"],
           decisionRule: "Progress after two players pay GBP 5 within 7 days.",
           constraints: [
@@ -744,9 +782,11 @@ describe("Idea analysis run", () => {
     const { runIdeaAnalysis } = createRunnerWithResponses([
       readyIntake(),
       completeAnalysis({
-        paymentValidation: {
+        validationPlan: {
+          testType: "non_payment_experiment",
+          testTypeLabel: "Behavioral Validation Experiment",
           goal: "Test whether the core technical result is achievable before selling it.",
-          offer: "Run the customer's anonymized sample through the manual process.",
+          offerOrExperiment: "Run the customer's anonymized sample through the manual process.",
           steps: ["Recruit three design partners", "Process one anonymized sample for each"],
           decisionRule: "Progress if at least two of three samples meet the agreed accuracy threshold.",
           constraints: ["Do not request payment until the technical feasibility threshold is met."],
@@ -764,8 +804,8 @@ describe("Idea analysis run", () => {
 
     expect(result.status).toBe("analysis");
     if (result.status !== "analysis") throw new Error("Expected analysis response.");
-    expect(result.paymentValidation.decisionRule).toMatch(/two of three samples/i);
-    expect(result.paymentValidation.decisionRule).not.toMatch(/pays|deposit|financial commitment/i);
+    expect(result.validationPlan.decisionRule).toMatch(/two of three samples/i);
+    expect(result.validationPlan.decisionRule).not.toMatch(/pays|deposit|financial commitment/i);
     expect(result.validationPlan).toMatchObject({
       testType: "non_payment_experiment",
       testTypeLabel: "Behavioral Validation Experiment",
@@ -814,7 +854,7 @@ describe("Idea analysis run", () => {
     const { runIdeaAnalysis } = createRunnerWithResponses([
       readyIntake(),
       completeAnalysis({
-        afterFirstPayment: {
+        afterValidation: {
           deliverManually: "Build the full product for the first customer.",
           learnFromCustomers: "Ask whether they liked it.",
           repeatBeforeScaling: "Scale immediately after the first successful test.",
@@ -830,13 +870,13 @@ describe("Idea analysis run", () => {
 
     expect(result.status).toBe("analysis");
     if (result.status !== "analysis") throw new Error("Expected analysis response.");
-    expect(result.afterFirstPayment.deliverManually).toMatch(/manually|existing tools/i);
-    expect(result.afterFirstPayment.deliverManually).not.toMatch(/build the full product/i);
-    expect(result.afterFirstPayment.learnFromCustomers).toMatch(
+    expect(result.afterValidation.deliverManually).toMatch(/manually|existing tools/i);
+    expect(result.afterValidation.deliverManually).not.toMatch(/build the full product/i);
+    expect(result.afterValidation.learnFromCustomers).toMatch(
       /valued|confused|no-brainer|refer|others/i
     );
-    expect(result.afterFirstPayment.repeatBeforeScaling).toMatch(/repeat|additional|multiple/i);
-    expect(result.afterFirstPayment.repeatBeforeScaling).not.toMatch(/scale immediately/i);
+    expect(result.afterValidation.repeatBeforeScaling).toMatch(/repeat|additional|multiple/i);
+    expect(result.afterValidation.repeatBeforeScaling).not.toMatch(/scale immediately/i);
   });
 
   it("reports malformed model JSON as a clear analysis failure", async () => {
