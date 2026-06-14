@@ -1,5 +1,16 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Development evaluation tools
+
+The collapsed **Development controls** and **Development output tools** are for comparing Idea analysis run quality while building the analyzer. They are not part of the intended final customer experience.
+
+- Add human-readable regression prompts to the root-level `test-cases` file using `Test Case N.` headings. The app reads them automatically.
+- The maintained regression set includes the basketball platform, compliance service, and deliberately vague idea.
+- Saved outputs are written as complete JSON files under `saved-analyses/`, so they persist across browser and PC restarts.
+- Saved runs can be reopened, downloaded, or deleted from the development output tools.
+- Comparison metadata includes analysis version, code version, model, deep-thinking setting, temperature, seed, timings, and token metrics.
+- Existing browser-only saves are migrated to project-local files when the saved-runs panel first loads.
+
 ## Getting Started
 
 First, run the development server:

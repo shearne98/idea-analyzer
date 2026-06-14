@@ -26,3 +26,7 @@ _Avoid_: Roadmap, Next steps, If Validation Succeeds
 **Key Unknowns**:
 The small set of critical missing information that could change the buyer, offer, Validation Plan, or decision, paired with a practical way to resolve each unknown during validation or manual delivery.
 _Avoid_: User Questions, Evidence Needed Before Building
+
+## Development-only evaluation
+
+Human-readable test cases, saved analysis JSON files, model/settings controls, run metadata, and performance metrics support development comparison work. They remain subordinate controls and are out of scope for the intended final customer experience.

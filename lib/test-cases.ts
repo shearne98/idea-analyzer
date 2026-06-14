@@ -21,8 +21,7 @@ function normalizeBlock(block: string) {
     .trim();
 }
 
-export async function readIdeaTestCases(): Promise<IdeaTestCase[]> {
-  const content = await fs.readFile(path.join(process.cwd(), "test-cases"), "utf8");
+export function parseIdeaTestCases(content: string): IdeaTestCase[] {
   const matches = [...content.matchAll(/^Test Case\s+(\d+)\.\s*$/gim)];
 
   return matches
@@ -39,4 +38,9 @@ export async function readIdeaTestCases(): Promise<IdeaTestCase[]> {
       };
     })
     .filter((testCase) => testCase.prompt);
+}
+
+export async function readIdeaTestCases(): Promise<IdeaTestCase[]> {
+  const content = await fs.readFile(path.join(process.cwd(), "test-cases"), "utf8");
+  return parseIdeaTestCases(content);
 }
