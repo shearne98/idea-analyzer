@@ -117,6 +117,105 @@ describe("Idea analysis run", () => {
     expect(result).not.toHaveProperty("paymentValidation");
   });
 
+  it("expands a weak clarification response into a focused minimum interview", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      modelJson({
+        status: "needs_clarification",
+        reason: "The core customer and solution are unclear.",
+        missingFields: ["targetCustomer", "proposedSolution"],
+        clarifyingQuestions: ["Who is this for?"],
+        possibleDirections: ["A consumer service"],
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "climate app",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("needs_clarification");
+    if (result.status !== "needs_clarification") throw new Error("Expected clarification response.");
+    expect(result.clarifyingQuestions).toHaveLength(3);
+    expect(result.clarifyingQuestions[0]).toBe("Who is this for?");
+  });
+
+  it("filters, prioritizes, and limits hostile clarification output", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      modelJson({
+        status: "needs_clarification",
+        reason: "Important context is missing.",
+        missingFields: [
+          "inventedField",
+          "payer",
+          "proposedSolution",
+          "targetCustomer",
+          "targetCustomer",
+          "mvpAng",
+          "valueOutcome",
+          "problemOrDesire",
+          "currentAlternative",
+          "mvpAngle",
+        ],
+        clarifyingQuestions: [
+          "Question 1?",
+          "Question 2?",
+          "Question 3?",
+          "Question 4?",
+          "Question 5?",
+          "Question 6?",
+          "Question 7?",
+        ],
+        possibleDirections: [
+          "Direction 1",
+          "Direction 2",
+          "Direction 3",
+          "Direction 4",
+          "Direction 5",
+        ],
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A service concept for teams that has some detail but no defined user, problem, or solution",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("needs_clarification");
+    if (result.status !== "needs_clarification") throw new Error("Expected clarification response.");
+    expect(result.missingFields).toEqual([
+      "targetCustomer",
+      "problemOrDesire",
+      "proposedSolution",
+      "valueOutcome",
+      "payer",
+    ]);
+    expect(result.clarifyingQuestions).toHaveLength(6);
+    expect(result.possibleDirections).toHaveLength(4);
+  });
+
+  it("overrides an incorrect ready decision for a phrase-only idea", async () => {
+    const { runIdeaAnalysis, calls } = createRunnerWithResponses([
+      modelJson({
+        status: "ready",
+        reason: "Ready to analyze.",
+        missingFields: [],
+        clarifyingQuestions: [],
+        possibleDirections: [],
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "AI for sports",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("needs_clarification");
+    expect(calls).toHaveLength(1);
+  });
+
   it("produces a founder-aware basketball analysis with payment validation", async () => {
     const { runIdeaAnalysis, calls } = createRunnerWithResponses(
       [

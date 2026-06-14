@@ -164,7 +164,7 @@ function normalizeArrayField(value: unknown): string[] {
 
 function isClearlyVaguePhrase(idea: string) {
   const words = idea.split(/\s+/).filter(Boolean);
-  const hasSentenceDetail = /[.!?;:]|\b(for|who|that|which|because|using|helps?|allows?|so that|by)\b/i.test(idea);
+  const hasSentenceDetail = /[.!?;:]|\b(who|that|which|because|using|helps?|allows?|so that|by)\b/i.test(idea);
   return words.length <= 8 && !hasSentenceDetail;
 }
 
@@ -335,6 +335,16 @@ function normalizeClarification(
     .filter((field) => missingFieldSet.has(field))
     .slice(0, 5);
   const clarifyingQuestions = normalizeArrayField(parsed.clarifyingQuestions).slice(0, 6);
+  const fallbackQuestions = [
+    "Who specifically experiences this problem or desire?",
+    `What would "${idea}" help them do or improve?`,
+    "What rough solution are you imagining?",
+    "What is the smallest manual test you could run first?",
+  ];
+  const focusedQuestions = [...new Set([...clarifyingQuestions, ...fallbackQuestions])].slice(
+    0,
+    Math.max(3, clarifyingQuestions.length)
+  );
   const possibleDirections = normalizeArrayField(parsed.possibleDirections).slice(0, 4);
 
   return {
@@ -348,15 +358,7 @@ function normalizeClarification(
         : missingFields.length > 0
         ? missingFields
         : ["targetCustomer", "problemOrDesire", "proposedSolution", "valueOutcome", "payer"],
-    clarifyingQuestions:
-      clarifyingQuestions.length > 0
-        ? clarifyingQuestions
-        : [
-            "Who specifically experiences this problem or desire?",
-            `What would "${idea}" help them do or improve?`,
-            "What rough solution are you imagining?",
-            "What is the smallest manual test you could run first?",
-          ],
+    clarifyingQuestions: focusedQuestions,
     possibleDirections:
       possibleDirections.length > 0
         ? possibleDirections
