@@ -11,7 +11,14 @@ import {
   type ClarificationResponse,
 } from "@/lib/analysis-types";
 import { combineIdeaWithClarification } from "@/lib/idea-intake";
-import { DEFAULT_OLLAMA_MODEL, OLLAMA_MODELS, type OllamaModel } from "@/lib/ollama-models";
+import {
+  ANALYSIS_MODES,
+  DEFAULT_ANALYSIS_MODE_ID,
+  findAnalysisMode,
+  findAnalysisModeByConfiguration,
+  type AnalysisModeId,
+  type OllamaModel,
+} from "@/lib/ollama-models";
 import type { IdeaTestCase } from "@/lib/test-cases";
 
 export default function Home() {
@@ -19,8 +26,8 @@ export default function Home() {
   const [result, setResult] = useState<AnalysisResponse | null>(null);
   const [clarification, setClarification] = useState<ClarificationResponse | null>(null);
   const [additionalContext, setAdditionalContext] = useState("");
-  const [selectedModel, setSelectedModel] = useState<OllamaModel>(DEFAULT_OLLAMA_MODEL);
-  const [deepThinking, setDeepThinking] = useState(false);
+  const [selectedAnalysisModeId, setSelectedAnalysisModeId] =
+    useState<AnalysisModeId>(DEFAULT_ANALYSIS_MODE_ID);
   const [analyzedModel, setAnalyzedModel] = useState<OllamaModel | null>(null);
   const [analyzedWithDeepThinking, setAnalyzedWithDeepThinking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -115,8 +122,9 @@ export default function Home() {
     }
 
     setIsLoading(true);
-    const requestedModel = selectedModel;
-    const requestedDeepThinking = deepThinking;
+    const analysisMode = findAnalysisMode(selectedAnalysisModeId);
+    const requestedModel = analysisMode.model;
+    const requestedDeepThinking = analysisMode.deepThinking;
 
     try {
       const response = await fetch("/api/analyze", {
@@ -183,8 +191,11 @@ export default function Home() {
     setIdea(run.idea);
     setError("");
     setAdditionalContext("");
-    setSelectedModel(run.response.runMetadata.model as OllamaModel);
-    setDeepThinking(run.response.runMetadata.deepThinking);
+    const savedMode = findAnalysisModeByConfiguration(
+      run.response.runMetadata.model,
+      run.response.runMetadata.deepThinking
+    );
+    setSelectedAnalysisModeId(savedMode?.id ?? DEFAULT_ANALYSIS_MODE_ID);
     setAnalyzedModel(run.response.runMetadata.model as OllamaModel);
     setAnalyzedWithDeepThinking(run.response.runMetadata.deepThinking);
     if (run.response.status === "analysis") {
@@ -196,6 +207,8 @@ export default function Home() {
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  const selectedAnalysisMode = findAnalysisMode(selectedAnalysisModeId);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" aria-busy={isLoading}>
@@ -241,34 +254,31 @@ export default function Home() {
                 Development controls
               </summary>
               <div className="flex flex-col gap-4 border-t border-slate-200 p-4 sm:flex-row sm:flex-wrap sm:items-end">
-                <div>
-                  <label htmlFor="model" className="block text-xs font-semibold text-slate-600">
-                    Ollama model
+                <div className="max-w-sm">
+                  <label htmlFor="analysis-mode" className="block text-xs font-semibold text-slate-600">
+                    Analysis mode
                   </label>
                   <select
-                    id="model"
-                    value={selectedModel}
-                    onChange={(event) => setSelectedModel(event.target.value as OllamaModel)}
+                    id="analysis-mode"
+                    value={selectedAnalysisModeId}
+                    onChange={(event) => setSelectedAnalysisModeId(event.target.value as AnalysisModeId)}
                     disabled={isLoading}
-                    className="mt-2 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-100"
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-100"
                   >
-                    {OLLAMA_MODELS.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
+                    {ANALYSIS_MODES.map((mode) => (
+                      <option key={mode.id} value={mode.id}>
+                        {mode.label}
                       </option>
                     ))}
                   </select>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                    {selectedAnalysisMode.description}
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    {selectedAnalysisMode.model}
+                    {selectedAnalysisMode.deepThinking ? " · Thinking mode" : ""}
+                  </p>
                 </div>
-                <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={deepThinking}
-                    onChange={(event) => setDeepThinking(event.target.checked)}
-                    disabled={isLoading}
-                    className="h-4 w-4 rounded border-slate-300 accent-slate-800"
-                  />
-                  <span>Deep thinking <span className="text-xs text-slate-400">(slower)</span></span>
-                </label>
                 {testCases.length > 0 ? (
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                     <div>
@@ -409,7 +419,7 @@ export default function Home() {
                   {analyzedModel ? (
                     <p className="text-xs text-slate-500">
                       Analyzed with <span className="font-medium text-slate-600">{analyzedModel}</span>
-                      {analyzedWithDeepThinking ? " · Deep thinking" : ""}
+                      {analyzedWithDeepThinking ? " · Thinking mode" : ""}
                     </p>
                   ) : null}
                 </div>

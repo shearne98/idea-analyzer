@@ -21,7 +21,7 @@ export function PerformanceDetails({
     { label: "Model", value: performance.model },
     { label: "Analysis version", value: runMetadata.analysisVersion },
     { label: "Code version", value: runMetadata.codeVersion },
-    { label: "Deep thinking", value: runMetadata.deepThinking ? "Enabled" : "Disabled" },
+    { label: "Thinking mode", value: runMetadata.deepThinking ? "Enabled" : "Disabled" },
     { label: "Temperature", value: String(runMetadata.temperature) },
     { label: "Seed", value: String(runMetadata.seed) },
     { label: "Total request time", value: formatDuration(performance.totalRequestMs) },

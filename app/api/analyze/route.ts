@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { IdeaAnalysisRunError, runIdeaAnalysis } from "@/lib/idea-analysis-run";
-import { isOllamaModel, OLLAMA_MODELS } from "@/lib/ollama-models";
+import {
+  ANALYSIS_MODES,
+  isOllamaModel,
+  isSupportedAnalysisConfiguration,
+  OLLAMA_MODELS,
+} from "@/lib/ollama-models";
 
 export async function POST(req: NextRequest) {
   let body: { idea?: unknown; model?: unknown; deepThinking?: unknown } = {};
@@ -28,9 +33,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "deepThinking must be true or false." }, { status: 400 });
   }
 
+  const deepThinking = body.deepThinking ?? false;
+  if (!isSupportedAnalysisConfiguration(body.model, deepThinking)) {
+    return NextResponse.json(
+      {
+        error: `This model and thinking-mode combination is not supported. Choose an analysis mode: ${ANALYSIS_MODES.map((mode) => mode.label).join(", ")}.`,
+      },
+      { status: 400 }
+    );
+  }
+
   try {
     return NextResponse.json(
-      await runIdeaAnalysis({ idea, model: body.model, deepThinking: body.deepThinking ?? false })
+      await runIdeaAnalysis({ idea, model: body.model, deepThinking })
     );
   } catch (error) {
     const runError =

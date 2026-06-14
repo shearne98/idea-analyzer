@@ -151,7 +151,7 @@ export function SavedAnalysisRuns({
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
                         {new Date(run.savedAt).toLocaleString()} · {run.response.runMetadata.model}
-                        {run.response.runMetadata.deepThinking ? " · Deep thinking" : ""}
+                        {run.response.runMetadata.deepThinking ? " · Thinking mode" : ""}
                       </p>
                       <p className="mt-1 font-mono text-[11px] text-slate-400">
                         {run.response.runMetadata.analysisVersion} · code{" "}
