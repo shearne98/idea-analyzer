@@ -17,6 +17,18 @@ export type PaymentValidation = {
   costEstimate: string;
 };
 
+export type ValidationPlan = {
+  testType: "7_day_payment_validation" | "non_payment_experiment";
+  testTypeLabel: "7-Day Payment Validation" | "Behavioral Validation Experiment";
+  goal: string;
+  offerOrExperiment: string;
+  steps: string[];
+  decisionRule: string;
+  constraints: string[];
+  timeRequired: string;
+  costEstimate: string;
+};
+
 export type AfterFirstPayment = {
   deliverManually: string;
   learnFromCustomers: string;
@@ -161,6 +173,8 @@ export type AnalysisResponse = {
   mostDangerousAssumption: string;
   whyThisMightFail: string[];
   whatNotToBuildYet: string[];
+  validationPlan: ValidationPlan;
+  /** @deprecated Replaced by validationPlan. */
   paymentValidation: PaymentValidation;
   afterFirstPayment: AfterFirstPayment;
   keyUnknowns: KeyUnknown[];

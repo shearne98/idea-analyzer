@@ -643,6 +643,103 @@ describe("Idea analysis run", () => {
     );
   });
 
+  it("returns a canonical 7-Day Payment Validation plan when payment is plausible", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        paymentValidation: {
+          goal: "Test whether league organizers will buy game recording.",
+          offer:
+            "Offer one local league organizer a recorded game and highlight pack for GBP 150, payable by Stripe invoice.",
+          steps: ["Contact five league organizers", "Send the paid offer", "Request payment"],
+          decisionRule: "Progress after one organizer pays the GBP 150 Stripe invoice within 7 days.",
+          constraints: ["Manual delivery must take less than four hours."],
+          timeRequired: "7 days",
+          costEstimate: "GBP 0-30",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed basketball recording service for local league organizers.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.validationPlan).toMatchObject({
+      testType: "7_day_payment_validation",
+      testTypeLabel: "7-Day Payment Validation",
+      goal: "Test whether league organizers will buy game recording.",
+      offerOrExperiment: expect.stringMatching(/organizer.*GBP 150.*Stripe invoice/i),
+      decisionRule: expect.stringMatching(/organizer pays.*GBP 150.*within 7 days/i),
+    });
+  });
+
+  it("keeps only distinct operational constraints in the Validation Plan", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        paymentValidation: {
+          goal: "Test whether players will buy highlights.",
+          offer: "Sell three clips to basketball players for GBP 5 by payment link.",
+          steps: ["Offer the clips", "Request payment", "Deliver manually"],
+          decisionRule: "Progress after two players pay GBP 5 within 7 days.",
+          constraints: [
+            "Manual editing must take less than three hours per game.",
+            "Fail if fewer than two players pay.",
+            "Players must say they like the clips.",
+          ],
+          timeRequired: "7 days",
+          costEstimate: "GBP 0-20",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed paid basketball highlight service.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.validationPlan.constraints).toEqual([
+      "Manual editing must take less than three hours per game.",
+    ]);
+  });
+
+  it("does not treat free engagement or compliments as payment validation", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        validationPlan: {
+          testType: "7_day_payment_validation",
+          testTypeLabel: "7-Day Payment Validation",
+          goal: "Test whether players like the clips.",
+          offerOrExperiment: "Send free clips to ten players.",
+          steps: ["Send free clips", "Ask whether players like them"],
+          decisionRule: "Progress if eight players say they like the clips.",
+          constraints: [],
+          timeRequired: "7 days",
+          costEstimate: "GBP 0",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed basketball highlight idea with no payment evidence.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.validationPlan.testType).toBe("non_payment_experiment");
+    expect(result.validationPlan.testTypeLabel).toBe("Behavioral Validation Experiment");
+  });
+
   it("preserves an explicitly justified non-payment validation experiment", async () => {
     const { runIdeaAnalysis } = createRunnerWithResponses([
       readyIntake(),
@@ -669,6 +766,13 @@ describe("Idea analysis run", () => {
     if (result.status !== "analysis") throw new Error("Expected analysis response.");
     expect(result.paymentValidation.decisionRule).toMatch(/two of three samples/i);
     expect(result.paymentValidation.decisionRule).not.toMatch(/pays|deposit|financial commitment/i);
+    expect(result.validationPlan).toMatchObject({
+      testType: "non_payment_experiment",
+      testTypeLabel: "Behavioral Validation Experiment",
+      goal: expect.stringMatching(/technical result|feasibility/i),
+      offerOrExperiment: expect.stringMatching(/anonymized sample/i),
+      decisionRule: expect.stringMatching(/two of three samples.*accuracy threshold/i),
+    });
   });
 
   it("reports malformed model JSON as a clear analysis failure", async () => {

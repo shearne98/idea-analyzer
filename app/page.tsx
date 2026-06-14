@@ -14,21 +14,38 @@ import { DEFAULT_OLLAMA_MODEL, OLLAMA_MODELS, type OllamaModel } from "@/lib/oll
 import type { IdeaTestCase } from "@/lib/test-cases";
 
 // TODO: Remove after legacy saved analysis runs no longer need compatibility.
-function withPaymentFirstFields(response: AnalysisResponse): AnalysisResponse {
+function withValidationPlanFields(response: AnalysisResponse): AnalysisResponse {
   const legacy = response.manualValidationTest;
+  const paymentValidation = response.paymentValidation ?? {
+    goal: legacy?.goal ?? "Test whether a target customer will make a financial commitment.",
+    offer: response.firstTestableVersion ?? "Offer the First Testable Version at a stated price.",
+    steps: legacy?.steps ?? [],
+    decisionRule:
+      legacy?.successCriteria?.[0] ??
+      "Progress only after at least one target customer pays or makes a binding financial commitment within 7 days.",
+    constraints: legacy?.failureCriteria ?? [],
+    timeRequired: legacy?.timeRequired ?? "7 days",
+    costEstimate: legacy?.costEstimate ?? "",
+  };
+  const paymentLanguage = `${paymentValidation.offer} ${paymentValidation.decisionRule}`;
+  const isPaymentPlan =
+    /\b(pay(?:s|ment|able)?|paid|price|invoice|deposit|purchase order|financial commitment)\b/i.test(
+      paymentLanguage
+    );
   return {
     ...response,
-    paymentValidation: response.paymentValidation ?? {
-      goal: legacy?.goal ?? "Test whether a target customer will make a financial commitment.",
-      offer: response.firstTestableVersion ?? "Offer the First Testable Version at a stated price.",
-      steps: legacy?.steps ?? [],
-      decisionRule:
-        legacy?.successCriteria?.[0] ??
-        "Progress only after at least one target customer pays or makes a binding financial commitment within 7 days.",
-      constraints: legacy?.failureCriteria ?? [],
-      timeRequired: legacy?.timeRequired ?? "7 days",
-      costEstimate: legacy?.costEstimate ?? "",
+    validationPlan: response.validationPlan ?? {
+      testType: isPaymentPlan ? "7_day_payment_validation" : "non_payment_experiment",
+      testTypeLabel: isPaymentPlan ? "7-Day Payment Validation" : "Behavioral Validation Experiment",
+      goal: paymentValidation.goal,
+      offerOrExperiment: paymentValidation.offer,
+      steps: paymentValidation.steps,
+      decisionRule: paymentValidation.decisionRule,
+      constraints: paymentValidation.constraints,
+      timeRequired: paymentValidation.timeRequired,
+      costEstimate: paymentValidation.costEstimate,
     },
+    paymentValidation,
     afterFirstPayment: response.afterFirstPayment ?? {
       deliverManually: "Fulfil the promise manually for the first paying customer.",
       learnFromCustomers: "Learn what they valued, what confused them, and what would make the offer easier to buy again.",
@@ -41,7 +58,7 @@ function withPaymentFirstFields(response: AnalysisResponse): AnalysisResponse {
           unknown,
           howToResolve:
             response.questionsToAskUsers?.[index] ??
-            "Resolve this during payment validation or manual delivery.",
+            "Resolve this during the Validation Plan or manual delivery.",
         })),
       ].slice(0, 5),
   };
@@ -157,7 +174,7 @@ export default function Home() {
       if (data.status === "needs_clarification") {
         setClarification(data);
       } else {
-        setResult(withPaymentFirstFields(data));
+        setResult(withValidationPlanFields(data));
         setAnalyzedModel(requestedModel);
         setAnalyzedWithDeepThinking(requestedDeepThinking);
       }
@@ -205,7 +222,7 @@ export default function Home() {
     setAnalyzedModel(run.response.runMetadata.model as OllamaModel);
     setAnalyzedWithDeepThinking(run.response.runMetadata.deepThinking);
     if (run.response.status === "analysis") {
-      setResult(withPaymentFirstFields(run.response));
+      setResult(withValidationPlanFields(run.response));
       setClarification(null);
     } else {
       setClarification(run.response);
@@ -543,29 +560,38 @@ export default function Home() {
             ) : null}
 
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
-              <h3 className="text-lg font-semibold tracking-tight text-slate-950">7-Day Payment Validation</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold tracking-tight text-slate-950">Validation Plan</h3>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                  {result.validationPlan.testTypeLabel}
+                </span>
+              </div>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Ask for payment before investing in a full product. Interest alone does not validate the idea.
+                {result.validationPlan.testType === "7_day_payment_validation"
+                  ? "Ask for payment or a binding commitment before investing in a full product."
+                  : "Use observable behavior to test the most important assumption before making a larger commitment."}
               </p>
               <div className="mt-5 grid gap-6 sm:grid-cols-2">
                 <div className="space-y-6">
-                  {hasContent(result.paymentValidation.goal) ? (
+                  {hasContent(result.validationPlan.goal) ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Goal</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{result.paymentValidation.goal}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{result.validationPlan.goal}</p>
                     </div>
                   ) : null}
-                  {hasContent(result.paymentValidation.offer) ? (
+                  {hasContent(result.validationPlan.offerOrExperiment) ? (
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Paid offer</p>
-                      <p className="mt-2 text-sm font-semibold leading-6 text-slate-800">{result.paymentValidation.offer}</p>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        {result.validationPlan.testType === "7_day_payment_validation" ? "Paid offer" : "Experiment"}
+                      </p>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-slate-800">{result.validationPlan.offerOrExperiment}</p>
                     </div>
                   ) : null}
-                  {hasContent(result.paymentValidation.steps) ? (
+                  {hasContent(result.validationPlan.steps) ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Steps</p>
                       <ul className="mt-2 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                        {formatList(result.paymentValidation.steps).map((item, index) => (
+                        {formatList(result.validationPlan.steps).map((item, index) => (
                           <li key={index}>{item}</li>
                         ))}
                       </ul>
@@ -573,33 +599,33 @@ export default function Home() {
                   ) : null}
                 </div>
                 <div className="space-y-6">
-                  {hasContent(result.paymentValidation.decisionRule) ? (
+                  {hasContent(result.validationPlan.decisionRule) ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Decision rule</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">{result.paymentValidation.decisionRule}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{result.validationPlan.decisionRule}</p>
                     </div>
                   ) : null}
-                  {hasContent(result.paymentValidation.constraints) ? (
+                  {hasContent(result.validationPlan.constraints) ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Constraints</p>
                       <ul className="mt-2 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                        {formatList(result.paymentValidation.constraints).map((item, index) => (
+                        {formatList(result.validationPlan.constraints).map((item, index) => (
                           <li key={index}>{item}</li>
                         ))}
                       </ul>
                     </div>
                   ) : null}
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {hasContent(result.paymentValidation.timeRequired) ? (
+                    {hasContent(result.validationPlan.timeRequired) ? (
                       <div className="rounded-xl bg-slate-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Time required</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-700">{result.paymentValidation.timeRequired}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{result.validationPlan.timeRequired}</p>
                       </div>
                     ) : null}
-                    {hasContent(result.paymentValidation.costEstimate) ? (
+                    {hasContent(result.validationPlan.costEstimate) ? (
                       <div className="rounded-xl bg-slate-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Cost estimate</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-700">{result.paymentValidation.costEstimate}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{result.validationPlan.costEstimate}</p>
                       </div>
                     ) : null}
                   </div>
@@ -611,7 +637,7 @@ export default function Home() {
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
                 <h3 className="text-lg font-semibold tracking-tight text-slate-950">Key Unknowns</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Critical information to resolve during payment validation or manual delivery.
+                  Critical information to resolve during the Validation Plan or manual delivery.
                 </p>
                 <div className="mt-5 grid gap-4 sm:grid-cols-2">
                   {result.keyUnknowns.map((item, index) => (

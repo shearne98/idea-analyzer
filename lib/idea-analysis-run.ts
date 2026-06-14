@@ -548,6 +548,16 @@ function normalizeScoreImprovementRecommendations(value: unknown) {
     .slice(0, 4);
 }
 
+function normalizeValidationConstraints(value: unknown) {
+  return normalizeArrayField(value)
+    .filter((constraint) =>
+      /\b(manual|deliver|fulfil|hour|minute|day|week|time|cost|budget|price|GBP|EUR|USD|safety|secure|privacy|regulat|legal|compliance|approval|capacity|limit|accuracy|quality|technical|feasibility|risk)\b/i.test(
+        constraint
+      )
+    )
+    .slice(0, 3);
+}
+
 function normalizePaymentValidation(parsed: Record<string, unknown>) {
   const value = isRecord(parsed.paymentValidation) ? parsed.paymentValidation : {};
   const legacy = isRecord(parsed.manualValidationTest) ? parsed.manualValidationTest : {};
@@ -566,10 +576,43 @@ function normalizePaymentValidation(parsed: Record<string, unknown>) {
     decisionRule:
       decisionRule ||
       "Progress only after at least one target customer pays, places a deposit, or makes an equivalent binding financial commitment within 7 days.",
-    constraints: normalizeArrayField(value.constraints ?? legacy.failureCriteria).slice(0, 3),
+    constraints: normalizeValidationConstraints(value.constraints ?? legacy.failureCriteria),
     timeRequired: String(value.timeRequired ?? legacy.timeRequired ?? "").trim() || "7 days",
     costEstimate: String(value.costEstimate ?? legacy.costEstimate ?? "").trim() || "€0-€50",
   };
+}
+
+function normalizeValidationPlan(parsed: Record<string, unknown>) {
+  const value = isRecord(parsed.validationPlan) ? parsed.validationPlan : {};
+  const paymentValidation = normalizePaymentValidation(parsed);
+  const offerOrExperiment = String(
+    value.offerOrExperiment ?? value.offer ?? paymentValidation.offer
+  ).trim();
+  const decisionRule = String(value.decisionRule ?? paymentValidation.decisionRule).trim();
+  const requestedType = String(value.testType ?? "").trim();
+  const paymentIsBinding =
+    /\b(pay(?:s|ment|able)?|paid|price|invoice|deposit|purchase order|signed paid pilot|financial commitment)\b/i.test(
+      `${offerOrExperiment} ${decisionRule}`
+    );
+  const testType =
+    requestedType === "non_payment_experiment" || !paymentIsBinding
+      ? "non_payment_experiment"
+      : "7_day_payment_validation";
+
+  return {
+    testType,
+    testTypeLabel:
+      testType === "7_day_payment_validation"
+        ? "7-Day Payment Validation"
+        : "Behavioral Validation Experiment",
+    goal: String(value.goal ?? paymentValidation.goal).trim(),
+    offerOrExperiment,
+    steps: normalizeArrayField(value.steps ?? paymentValidation.steps).slice(0, 7),
+    decisionRule,
+    constraints: normalizeValidationConstraints(value.constraints ?? paymentValidation.constraints),
+    timeRequired: String(value.timeRequired ?? paymentValidation.timeRequired).trim(),
+    costEstimate: String(value.costEstimate ?? paymentValidation.costEstimate).trim(),
+  } as const;
 }
 
 function normalizeAfterFirstPayment(parsed: Record<string, unknown>) {
@@ -751,7 +794,7 @@ ${idea}`,
         },
         {
           role: "user",
-          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, smallestViableWedge, firstTestableVersion, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, scoreImprovementRecommendations, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, paymentValidation, afterFirstPayment, keyUnknowns, manualValidationTest, questionsToAskUsers, evidenceNeededBeforeBuilding, recommendedNextAction, recommendedStrategy, recommendedStrategyLabel, strategyReason.
+          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, smallestViableWedge, firstTestableVersion, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, scoreImprovementRecommendations, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, validationPlan, paymentValidation, afterFirstPayment, keyUnknowns, manualValidationTest, questionsToAskUsers, evidenceNeededBeforeBuilding, recommendedNextAction, recommendedStrategy, recommendedStrategyLabel, strategyReason.
 
 Each of founderFit, painOrDesire, mvpTestability, and commercialPotential must be an object with exactly:
 score: integer from 1 to 10
@@ -808,22 +851,26 @@ Do not default every idea to test_manually_first or "do not build software." Rec
 
 Prefer conservative scores. If evidence is missing, say so clearly. Focus on the smallest useful version and separate future vision from MVP reality. Identify what not to build yet.
 
-paymentValidation is the single immediate next action and must contain exactly:
-- goal: the payment assumption being tested
-- offer: a concrete paid offer with a stated price or price range
+validationPlan is the single immediate next action and must contain exactly:
+- testType: exactly "7_day_payment_validation" or "non_payment_experiment"
+- testTypeLabel: exactly "7-Day Payment Validation" or "Behavioral Validation Experiment"
+- goal: the most important assumption being tested
+- offerOrExperiment: a concrete paid offer or observable real-world experiment
 - steps: 4 to 7 concrete actions completed within 7 days
-- decisionRule: one measurable rule requiring at least one real payment; only when immediate payment is genuinely impractical may it require a deposit, signed paid pilot, purchase order, or equivalent binding financial commitment
+- decisionRule: one measurable behavior-based rule
 - constraints: 0 to 3 meaningful operational constraints that are not merely the inverse of the decision rule
 - timeRequired: a specific estimate
 - costEstimate: a specific estimate or range
 
-Payment-validation rules:
-- Getting paid is the defining validation signal. Free engagement, verbal interest, survey answers, and hypothetical willingness to pay do not validate the idea.
-- Ask for payment before building a full product. Sell the promised outcome, then fulfil it manually or scrappily.
-- The offer, target buyer, price, outreach channel, and payment method must be concrete.
-- The steps must explain exactly who to approach, what to offer, how to ask for payment, and how to deliver after payment.
-- The decisionRule must state the number of paying customers or binding financial commitments required within 7 days.
+Validation-plan rules:
+- Recommend the strongest practical real-world test of the most important assumption.
+- Use 7_day_payment_validation whenever asking for payment or a binding financial commitment is plausible and tests the core risk.
+- A 7-Day Payment Validation must identify a concrete buyer, offer, price, outreach channel, payment method, and the number of payments or binding commitments required within 7 days.
+- Free engagement, compliments, verbal interest, survey answers, and hypothetical willingness to pay do not satisfy a payment Validation Plan.
+- Use non_payment_experiment only when payment is genuinely premature or does not test the core risk. It must still measure observable behavior with a numeric threshold.
 - Do not include inverse failure criteria. constraints are only for distinct limits such as manual fulfilment time, delivery cost, regulation, or safety.
+
+Legacy compatibility: paymentValidation should mirror validationPlan using offer for offerOrExperiment. It is retained temporarily.
 
 afterFirstPayment must contain exactly:
 - deliverManually: how to fulfil the promise for the first paying customers without a full product
@@ -896,9 +943,11 @@ ${founderProfileSection}`,
     parsed.questionsToAskUsers = normalizeArrayField(parsed.questionsToAskUsers);
     parsed.evidenceNeededBeforeBuilding = normalizeArrayField(parsed.evidenceNeededBeforeBuilding);
     parsed.manualValidationTest = normalizeManualTest(parsed.manualValidationTest);
+    parsed.validationPlan = normalizeValidationPlan(parsed);
     parsed.paymentValidation = normalizePaymentValidation(parsed);
     parsed.afterFirstPayment = normalizeAfterFirstPayment(parsed);
     parsed.keyUnknowns = normalizeKeyUnknowns(parsed);
+    const validationPlan = parsed.validationPlan as ReturnType<typeof normalizeValidationPlan>;
     const paymentValidation = parsed.paymentValidation as ReturnType<typeof normalizePaymentValidation>;
     const keyUnknowns = parsed.keyUnknowns as ReturnType<typeof normalizeKeyUnknowns>;
     const ideaSummary = String(parsed.ideaSummary ?? idea).trim();
@@ -910,7 +959,7 @@ ${founderProfileSection}`,
       }, subject to real-world validation.`;
     parsed.firstTestableVersion =
       String(parsed.firstTestableVersion ?? parsed.smallestViableWedge ?? "").trim() ||
-      `Use this paid offer as the First Testable Version: ${paymentValidation.offer}`;
+      `Use this as the First Testable Version: ${validationPlan.offerOrExperiment}`;
     parsed.whatNotToBuildYet =
       (parsed.whatNotToBuildYet as string[]).length > 0
         ? parsed.whatNotToBuildYet
@@ -926,7 +975,8 @@ ${founderProfileSection}`,
     };
     parsed.questionsToAskUsers = keyUnknowns.map((item) => item.howToResolve);
     parsed.evidenceNeededBeforeBuilding = keyUnknowns.map((item) => item.unknown);
-    parsed.recommendedNextAction = `${paymentValidation.offer} ${paymentValidation.decisionRule}`.trim();
+    parsed.recommendedNextAction =
+      `${validationPlan.offerOrExperiment} ${validationPlan.decisionRule}`.trim();
     const suppliedContext = `${idea}\n${founderProfile}`;
     parsed.founderFit = founderProfile
       ? removeUnsupportedProofClaims(
