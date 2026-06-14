@@ -68,6 +68,22 @@ export default function Home() {
     return typeof value === "string" && value.trim().length > 0;
   };
 
+  const renderListOrParagraph = (value: unknown) => {
+    const items = formatList(value);
+
+    if (items.length === 1) {
+      return <p className="mt-3 text-sm leading-6 text-slate-600">{items[0]}</p>;
+    }
+
+    return (
+      <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
+        {items.map((item, index) => (
+          <li key={index}>{item}</li>
+        ))}
+      </ul>
+    );
+  };
+
   const strategyStyles = (strategy: AnalysisResponse["recommendedStrategy"]) => {
     switch (strategy) {
       case "clarify_more":
@@ -453,11 +469,7 @@ export default function Home() {
                 {hasContent(result.whatNotToBuildYet) ? (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                     <h3 className="text-base font-semibold text-slate-900">What Not To Build Yet</h3>
-                    <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                      {formatList(result.whatNotToBuildYet).map((item, index) => (
-                        <li key={index}>{item}</li>
-                      ))}
-                    </ul>
+                    {renderListOrParagraph(result.whatNotToBuildYet)}
                   </div>
                 ) : null}
               </div>
@@ -525,11 +537,7 @@ export default function Home() {
             {hasContent(result.whyThisMightFail) ? (
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
                 <h3 className="text-base font-semibold text-slate-900">Risks &amp; Assumptions</h3>
-                <ul className="mt-4 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
-                  {formatList(result.whyThisMightFail).map((item, index) => (
-                    <li key={index}>{item}</li>
-                  ))}
-                </ul>
+                {renderListOrParagraph(result.whyThisMightFail)}
               </div>
             ) : null}
 
