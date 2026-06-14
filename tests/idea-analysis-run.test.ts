@@ -471,6 +471,143 @@ describe("Idea analysis run", () => {
     expect(result.confidenceLevel).toBe("medium");
   });
 
+  it("does not recommend a software MVP when confidence and assessment scores are weak", async () => {
+    const weakScore = {
+      score: 3,
+      reason: "Important assumptions remain unproven.",
+      evidence: [],
+      uncertainty: "Customer behavior is unknown.",
+    };
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        confidenceLevel: "low",
+        painOrDesire: weakScore,
+        mvpTestability: weakScore,
+        commercialPotential: weakScore,
+        recommendedStrategy: "build_software_mvp",
+        strategyReason: "Build the complete application.",
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed software idea with a named customer but no customer evidence or proof.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.recommendedStrategy).toBe("research_first");
+    expect(result.recommendedStrategyLabel).toBe("Research first");
+    expect(result.strategyReason).toMatch(/unknown|evidence|research/i);
+  });
+
+  it("supplies concrete scope guidance when the model omits it", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        strongestVersion: "",
+        firstTestableVersion: "",
+        smallestViableWedge: "",
+        whatNotToBuildYet: [],
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed service idea with a named customer, problem, offer, and manual test.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.strongestVersion).toMatch(/plausible|focused/i);
+    expect(result.firstTestableVersion).toContain(result.paymentValidation.offer);
+    expect(result.whatNotToBuildYet).toEqual(
+      expect.arrayContaining([expect.stringMatching(/full|beyond|premature/i)])
+    );
+  });
+
+  it("reduces an unproven software MVP to a tiny prototype", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        confidenceLevel: "medium",
+        firstTestableVersion: "Build a clickable scheduling prototype and test task completion.",
+        recommendedStrategy: "build_software_mvp",
+        strategyReason: "The full software product should be built.",
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed scheduling software idea with a clear workflow but no customer proof yet.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.recommendedStrategy).toBe("build_tiny_prototype");
+    expect(result.recommendedStrategyLabel).toBe("Build a tiny prototype");
+    expect(result.strategyReason).toMatch(/prototype|evidence|proof/i);
+  });
+
+  it("preserves a software MVP strategy when strong evidence justifies it", async () => {
+    const strongScore = {
+      score: 8,
+      reason: "The paid manual service has demonstrated repeat demand.",
+      evidence: ["Five existing customers paid and repeatedly used the manual service."],
+      uncertainty: "Software retention is not yet known.",
+    };
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        confidenceLevel: "high",
+        painOrDesire: strongScore,
+        mvpTestability: strongScore,
+        commercialPotential: strongScore,
+        firstTestableVersion: "Build the smallest self-service workflow used by existing customers.",
+        recommendedStrategy: "build_software_mvp",
+        strategyReason:
+          "Existing paying customers repeatedly use the manual workflow, and software is needed to test self-service retention.",
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed workflow service with five existing paying customers and repeated manual use.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.recommendedStrategy).toBe("build_software_mvp");
+    expect(result.recommendedStrategyLabel).toBe("Build a software MVP");
+    expect(result.strategyReason).toMatch(/paying customers|software/i);
+  });
+
+  it("does not recommend clarification after completing the analysis", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        recommendedStrategy: "clarify_more",
+        strategyReason: "Clarify the idea.",
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed idea with a target customer, problem, solution, and test.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.recommendedStrategy).toBe("research_first");
+    expect(result.strategyReason).toMatch(/analysis|unknown|research/i);
+  });
+
   it("preserves organizational buyer and commitment constraints for a B2B idea", async () => {
     const { runIdeaAnalysis } = createRunnerWithResponses([
       readyIntake(),

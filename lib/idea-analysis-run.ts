@@ -490,6 +490,37 @@ function legacyStrategy(value: unknown): RecommendedStrategy {
   }
 }
 
+function normalizeRecommendedStrategy(
+  requested: RecommendedStrategy,
+  parsed: Record<string, unknown>
+): { strategy: RecommendedStrategy; reason?: string } {
+  if (requested === "clarify_more") {
+    return {
+      strategy: "research_first",
+      reason:
+        "The idea has enough context for analysis, but important unknowns should be researched before making a larger commitment.",
+    };
+  }
+
+  if (requested === "build_software_mvp" && parsed.confidenceLevel === "low") {
+    return {
+      strategy: "research_first",
+      reason:
+        "Customer and market evidence is still too uncertain to justify building a software MVP.",
+    };
+  }
+
+  if (requested === "build_software_mvp" && !hasStrongEvidence(parsed)) {
+    return {
+      strategy: "build_tiny_prototype",
+      reason:
+        "A tiny prototype can test the core software behavior before the evidence justifies a full software MVP.",
+    };
+  }
+
+  return { strategy: requested };
+}
+
 function isScoreArea(value: unknown): value is ScoreArea {
   return typeof value === "string" && SCORE_AREAS.some((area) => area === value);
 }
@@ -760,7 +791,9 @@ evidenceToCollect: the concrete signal that would justify reassessment
 
 Return at most one recommendation for each scoreArea. Keep every field brief and avoid restating the same information across fields. This is retained for compatibility and is not displayed as a separate action section.
 
-firstTestableVersion means the simplest version that can be put in front of real users to test the core assumption. Keep smallestViableWedge for backward compatibility, but make firstTestableVersion more concrete.
+strongestVersion is the most compelling plausible version of the opportunity supported by the supplied context. Present it as a hypothesis to validate, never as proven fact.
+
+firstTestableVersion means the simplest version that can be put in front of real users to test the core assumption. Keep smallestViableWedge for backward compatibility, but make firstTestableVersion concrete enough to execute.
 
 recommendedStrategy must be exactly one of:
 - clarify_more: the idea is still underspecified
@@ -771,7 +804,7 @@ recommendedStrategy must be exactly one of:
 - pause: interesting but not currently high priority
 - kill: weak pain, fit, and commercial potential make further testing unattractive
 
-Do not default every idea to test_manually_first. Recommend build_tiny_prototype when software is the smallest useful behavioral test. Recommend research_first when customer understanding is the main gap. Recommend build_software_mvp only when evidence and necessity justify it. recommendedStrategyLabel is a readable label. strategyReason must explain why this strategy is the right next level of commitment.
+Do not default every idea to test_manually_first or "do not build software." Recommend build_tiny_prototype when software is the smallest useful behavioral test. Recommend research_first when customer understanding is the main gap. Recommend build_software_mvp only when evidence and necessity justify it. A completed analysis must not recommend clarify_more because unclear ideas should have been handled by intake. recommendedStrategyLabel is a readable label. strategyReason must explain why this strategy is the right next level of commitment and remain consistent with the assessment scores and confidence level.
 
 Prefer conservative scores. If evidence is missing, say so clearly. Focus on the smallest useful version and separate future vision from MVP reality. Identify what not to build yet.
 
@@ -868,6 +901,20 @@ ${founderProfileSection}`,
     parsed.keyUnknowns = normalizeKeyUnknowns(parsed);
     const paymentValidation = parsed.paymentValidation as ReturnType<typeof normalizePaymentValidation>;
     const keyUnknowns = parsed.keyUnknowns as ReturnType<typeof normalizeKeyUnknowns>;
+    const ideaSummary = String(parsed.ideaSummary ?? idea).trim();
+    const targetCustomer = String(parsed.targetCustomer ?? "").trim();
+    parsed.strongestVersion =
+      String(parsed.strongestVersion ?? "").trim() ||
+      `A focused, plausible version of ${ideaSummary}${
+        targetCustomer ? ` for ${targetCustomer}` : ""
+      }, subject to real-world validation.`;
+    parsed.firstTestableVersion =
+      String(parsed.firstTestableVersion ?? parsed.smallestViableWedge ?? "").trim() ||
+      `Use this paid offer as the First Testable Version: ${paymentValidation.offer}`;
+    parsed.whatNotToBuildYet =
+      (parsed.whatNotToBuildYet as string[]).length > 0
+        ? parsed.whatNotToBuildYet
+        : ["A full product or capabilities beyond the First Testable Version"];
     // TODO: Remove these legacy compatibility fields after old saved analysis runs are retired.
     parsed.manualValidationTest = {
       goal: paymentValidation.goal,
@@ -924,12 +971,17 @@ ${founderProfileSection}`,
       scoreImprovementRecommendations.length > 0
         ? scoreImprovementRecommendations
         : [fallbackScoreImprovementRecommendation(parsed)];
-    const recommendedStrategy = isRecommendedStrategy(parsed.recommendedStrategy)
+    const requestedStrategy = isRecommendedStrategy(parsed.recommendedStrategy)
       ? parsed.recommendedStrategy
       : legacyStrategy(parsed.buildDecision);
-    parsed.recommendedStrategy = recommendedStrategy;
-    parsed.recommendedStrategyLabel = STRATEGY_LABELS[recommendedStrategy];
+    const normalizedStrategy = normalizeRecommendedStrategy(
+      requestedStrategy,
+      parsed
+    );
+    parsed.recommendedStrategy = normalizedStrategy.strategy;
+    parsed.recommendedStrategyLabel = STRATEGY_LABELS[normalizedStrategy.strategy];
     parsed.strategyReason =
+      normalizedStrategy.reason ||
       String(parsed.strategyReason ?? parsed.recommendedNextAction ?? "").trim() ||
       "This strategy matches the current evidence and uncertainty level.";
     delete parsed.founderFitScore;
