@@ -33,7 +33,81 @@ const LEGACY_RESPONSE_FIELDS = [
   "commercialPotentialReason",
   "scoreCalibration",
   "buildDecision",
+  "mostDangerousAssumption",
+  "whyThisMightFail",
+  "keyUnknowns",
 ] as const;
+
+function migrateAfterValidation(value: unknown, firstTestableVersion: string) {
+  const afterValidation = isRecord(value) ? value : {};
+  if (
+    typeof afterValidation.fulfilValidatedPromise === "string" &&
+    Array.isArray(afterValidation.learnFromDelivery) &&
+    typeof afterValidation.repeatedProofTarget === "string" &&
+    typeof afterValidation.nextInvestmentIfProven === "string" &&
+    typeof afterValidation.reviseOrStopIf === "string"
+  ) {
+    return afterValidation;
+  }
+
+  const legacyLearning = String(afterValidation.learnFromCustomers ?? "").trim();
+  return {
+    fulfilValidatedPromise:
+      String(afterValidation.deliverManually ?? "").trim() ||
+      `Fulfil ${firstTestableVersion || "the validated promise"} using the simplest appropriate approach.`,
+    learnFromDelivery: [
+      legacyLearning || "Identify which part of the delivered outcome creates the strongest customer value.",
+      "Track the delivery friction that should influence the next investment.",
+    ],
+    repeatedProofTarget:
+      String(afterValidation.repeatBeforeScaling ?? "").trim() ||
+      "Repeat the successful validation signal with at least three additional target customers.",
+    nextInvestmentIfProven:
+      "Invest only in the smallest improvement justified by repeated customer value or observed delivery friction.",
+    reviseOrStopIf:
+      "Revise, pause, or stop if the successful signal does not repeat with additional target customers.",
+  };
+}
+
+function migrateCriticalConcerns(response: Record<string, unknown>) {
+  if (Array.isArray(response.criticalRisksAndUnknowns)) {
+    return response.criticalRisksAndUnknowns;
+  }
+
+  const primaryConcern =
+    String(response.mostDangerousAssumption ?? "").trim() ||
+    "Will target customers make the commitment required by the Validation Plan?";
+  const legacyRisks = Array.isArray(response.whyThisMightFail) ? response.whyThisMightFail : [];
+  const legacyUnknowns = Array.isArray(response.keyUnknowns) ? response.keyUnknowns : [];
+  const legacyQuestions = Array.isArray(response.questionsToAskUsers) ? response.questionsToAskUsers : [];
+  const legacyEvidence = Array.isArray(response.evidenceNeededBeforeBuilding)
+    ? response.evidenceNeededBeforeBuilding
+    : [];
+  const secondaryConcerns = [
+    ...legacyRisks.map((item) => String(item).trim()),
+    ...legacyUnknowns.map((item) =>
+      isRecord(item) ? String(item.unknown ?? "").trim() : String(item).trim()
+    ),
+    ...legacyEvidence.map((item) => String(item).trim()),
+    ...legacyQuestions.map((item) => String(item).trim()),
+    "Will the successful signal repeat with additional target customers?",
+  ].filter(Boolean);
+
+  return [
+    {
+      concern: primaryConcern,
+      decisionImpact: "Determines whether the idea should progress beyond the Validation Plan.",
+      priority: "primary",
+      addressedDuring: "validation_plan",
+    },
+    ...secondaryConcerns.map((concern) => ({
+      concern,
+      decisionImpact: "Determines whether further investment is justified.",
+      priority: "secondary",
+      addressedDuring: "after_validation",
+    })),
+  ].slice(0, 5);
+}
 
 function migrateSavedAnalysisRun(value: unknown): unknown {
   if (!isRecord(value) || !isRecord(value.response) || value.response.status !== "analysis") {
@@ -44,14 +118,13 @@ function migrateSavedAnalysisRun(value: unknown): unknown {
   const payment = isRecord(response.paymentValidation) ? response.paymentValidation : {};
   const manual = isRecord(response.manualValidationTest) ? response.manualValidationTest : {};
   const successCriteria = Array.isArray(manual.successCriteria) ? manual.successCriteria : [];
-  const questions = Array.isArray(response.questionsToAskUsers) ? response.questionsToAskUsers : [];
-  const evidence = Array.isArray(response.evidenceNeededBeforeBuilding)
-    ? response.evidenceNeededBeforeBuilding
-    : [];
-
   response.firstTestableVersion =
     String(response.firstTestableVersion ?? response.smallestViableWedge ?? "").trim();
-  response.validationPlan = isRecord(response.validationPlan)
+  const criticalRisksAndUnknowns = migrateCriticalConcerns(response);
+  const primaryConcern = isRecord(criticalRisksAndUnknowns[0])
+    ? String(criticalRisksAndUnknowns[0].concern ?? "").trim()
+    : "";
+  const validationPlan = isRecord(response.validationPlan)
     ? response.validationPlan
     : {
         testType: "7_day_payment_validation",
@@ -68,21 +141,15 @@ function migrateSavedAnalysisRun(value: unknown): unknown {
         timeRequired: String(payment.timeRequired ?? manual.timeRequired ?? "").trim(),
         costEstimate: String(payment.costEstimate ?? manual.costEstimate ?? "").trim(),
       };
-  response.keyUnknowns = Array.isArray(response.keyUnknowns)
-    ? response.keyUnknowns
-    : [...questions, ...evidence].map((item, index) => ({
-        unknown: String(evidence[index] ?? item),
-        howToResolve: String(questions[index] ?? "Resolve this during the Validation Plan."),
-      }));
-  response.afterValidation = isRecord(response.afterValidation)
-    ? response.afterValidation
-    : isRecord(response.afterFirstPayment)
-      ? response.afterFirstPayment
-      : {
-          deliverManually: "Fulfil the promise manually for the first validated customers.",
-          learnFromCustomers: "Learn what customers valued and what confused them.",
-          repeatBeforeScaling: "Repeat the validation signal before systematizing or scaling.",
-        };
+  response.validationPlan = {
+    ...validationPlan,
+    addressesConcern: String(validationPlan.addressesConcern ?? primaryConcern).trim(),
+  };
+  response.criticalRisksAndUnknowns = criticalRisksAndUnknowns;
+  response.afterValidation = migrateAfterValidation(
+    isRecord(response.afterValidation) ? response.afterValidation : response.afterFirstPayment,
+    String(response.firstTestableVersion ?? "").trim()
+  );
 
   for (const field of LEGACY_RESPONSE_FIELDS) delete response[field];
   return { ...value, response };

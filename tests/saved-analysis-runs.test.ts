@@ -105,6 +105,19 @@ describe("saved analysis run store", () => {
         },
         questionsToAskUsers: ["Which buyer pays first?"],
         evidenceNeededBeforeBuilding: ["A real payment"],
+        mostDangerousAssumption: "Target customers will pay for the manual service.",
+        whyThisMightFail: ["The successful signal may not repeat with additional customers."],
+        keyUnknowns: [
+          {
+            unknown: "Will buyers renew after the first delivery?",
+            howToResolve: "Ask buyers whether they would renew.",
+          },
+        ],
+        afterValidation: {
+          deliverManually: "Deliver the service with existing tools.",
+          learnFromCustomers: "Learn which outcome customers value most.",
+          repeatBeforeScaling: "Repeat the sale with three additional customers.",
+        },
       },
     };
     await writeFile(
@@ -116,10 +129,35 @@ describe("saved analysis run store", () => {
     const [migrated] = await createSavedAnalysisRunStore(directory).list();
     expect(migrated.response).toHaveProperty("firstTestableVersion", "Deliver the service manually.");
     expect(migrated.response).toHaveProperty("validationPlan.offerOrExperiment", "Sell one manual service for GBP 100.");
-    expect(migrated.response).toHaveProperty("keyUnknowns");
+    expect(migrated.response).toHaveProperty(
+      "validationPlan.addressesConcern",
+      "Target customers will pay for the manual service."
+    );
+    expect(migrated.response).toHaveProperty("criticalRisksAndUnknowns");
+    expect(migrated.response).toHaveProperty("criticalRisksAndUnknowns.0", {
+      concern: "Target customers will pay for the manual service.",
+      decisionImpact: "Determines whether the idea should progress beyond the Validation Plan.",
+      priority: "primary",
+      addressedDuring: "validation_plan",
+    });
+    expect(migrated.response).not.toHaveProperty("keyUnknowns");
+    expect(migrated.response).not.toHaveProperty("mostDangerousAssumption");
+    expect(migrated.response).not.toHaveProperty("whyThisMightFail");
+    expect(migrated.response).toHaveProperty(
+      "afterValidation.fulfilValidatedPromise",
+      "Deliver the service with existing tools."
+    );
+    expect(migrated.response).toHaveProperty("afterValidation.learnFromDelivery");
+    expect(migrated.response).toHaveProperty(
+      "afterValidation.repeatedProofTarget",
+      "Repeat the sale with three additional customers."
+    );
+    expect(migrated.response).toHaveProperty("afterValidation.nextInvestmentIfProven");
+    expect(migrated.response).toHaveProperty("afterValidation.reviseOrStopIf");
+    expect(migrated.response).not.toHaveProperty("afterValidation.deliverManually");
     expect(migrated.response).not.toHaveProperty("paymentValidation");
     expect(await readFile(path.join(directory, `${run.id}.json`), "utf8")).not.toMatch(
-      /paymentValidation|smallestViableWedge|questionsToAskUsers|evidenceNeededBeforeBuilding/
+      /paymentValidation|smallestViableWedge|questionsToAskUsers|evidenceNeededBeforeBuilding|deliverManually|learnFromCustomers|repeatBeforeScaling|mostDangerousAssumption|whyThisMightFail|keyUnknowns|howToResolve/
     );
   });
 });

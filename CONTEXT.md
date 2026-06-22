@@ -13,7 +13,7 @@ A concise assessment of an idea across Founder Fit, Pain / Desire, MVP Testabili
 _Avoid_: Evidence Scores, How To Improve The Evidence
 
 **Validation Plan**:
-The single immediate next action recommended by an Idea analysis run. It defines the strongest practical real-world test of the idea's most important assumption before the founder makes a larger commitment. When plausible, it should be a 7-Day Payment Validation that asks target customers for payment, a deposit, or an equivalent binding financial commitment.
+The single immediate next action recommended by an Idea analysis run. It explicitly addresses the primary Critical Risk or Unknown through the strongest practical real-world test before the founder makes a larger commitment. When plausible, it should be a 7-Day Payment Validation that asks target customers for payment, a deposit, or an equivalent binding financial commitment.
 _Avoid_: Recommended next move, Recommended Next Action
 
 **7-Day Payment Validation**:
@@ -23,9 +23,9 @@ The preferred Validation Plan when payment or a binding financial commitment can
 The conditional proof-building cycle that begins after the Validation Plan succeeds. Its stable principles are to fulfil the validated promise appropriately, learn from real usage, and seek measurable repeated proof that gates the next investment; it names both the proof that unlocks an investment addressing observed friction or customer value and the result that means revise, pause, or stop.
 _Avoid_: Roadmap, Next steps, If Validation Succeeds
 
-**Key Unknowns**:
-The small set of critical missing information that could change the buyer, offer, Validation Plan, or decision, paired with a practical way to resolve each unknown during validation or manual delivery.
-_Avoid_: User Questions, Evidence Needed Before Building
+**Critical Risks & Unknowns**:
+The main skeptical diagnosis of the idea: one primary concern most likely to change the current recommendation, plus a small set of secondary known risks or unresolved assumptions that could change a later investment. Each concern explains its decision impact and the stage responsible for addressing it, without creating a separate action plan.
+_Avoid_: Key Unknowns, Risks & Assumptions, Most Dangerous Assumption, User Questions, Evidence Needed Before Building
 
 ## Development-only evaluation
 

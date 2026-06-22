@@ -1,6 +1,7 @@
 export type ValidationPlan = {
   testType: "7_day_payment_validation" | "non_payment_experiment";
   testTypeLabel: "7-Day Payment Validation" | "Behavioral Validation Experiment";
+  addressesConcern: string;
   goal: string;
   offerOrExperiment: string;
   steps: string[];
@@ -11,14 +12,18 @@ export type ValidationPlan = {
 };
 
 export type AfterValidation = {
-  deliverManually: string;
-  learnFromCustomers: string;
-  repeatBeforeScaling: string;
+  fulfilValidatedPromise: string;
+  learnFromDelivery: string[];
+  repeatedProofTarget: string;
+  nextInvestmentIfProven: string;
+  reviseOrStopIf: string;
 };
 
-export type KeyUnknown = {
-  unknown: string;
-  howToResolve: string;
+export type CriticalConcern = {
+  concern: string;
+  decisionImpact: string;
+  priority: "primary" | "secondary";
+  addressedDuring: "validation_plan" | "after_validation" | "before_larger_investment";
 };
 
 export type PerformanceMetrics = {
@@ -150,12 +155,10 @@ export type AnalysisResponse = {
   scoreSummary: string;
   confidenceLevel: "low" | "medium" | "high";
   scoreImprovementRecommendations: ScoreImprovementRecommendation[];
-  mostDangerousAssumption: string;
-  whyThisMightFail: string[];
   whatNotToBuildYet: string[];
+  criticalRisksAndUnknowns: CriticalConcern[];
   validationPlan: ValidationPlan;
   afterValidation: AfterValidation;
-  keyUnknowns: KeyUnknown[];
   recommendedStrategy: RecommendedStrategy;
   recommendedStrategyLabel: string;
   strategyReason: string;

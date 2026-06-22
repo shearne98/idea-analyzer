@@ -63,6 +63,7 @@ function completeAnalysisValue(overrides: Record<string, unknown> = {}) {
     validationPlan: {
       testType: "7_day_payment_validation",
       testTypeLabel: "7-Day Payment Validation",
+      addressesConcern: "Will target customers pay for the offer?",
       goal: "Test commitment.",
       offerOrExperiment: "A manually delivered service for GBP 100.",
       steps: ["Approach five buyers", "Ask for payment", "Deliver manually", "Review results"],
@@ -72,14 +73,24 @@ function completeAnalysisValue(overrides: Record<string, unknown> = {}) {
       costEstimate: "GBP 0-50",
     },
     afterValidation: {
-      deliverManually: "Deliver manually.",
-      learnFromCustomers: "Observe what creates value.",
-      repeatBeforeScaling: "Repeat the sale.",
+      fulfilValidatedPromise: "Deliver the validated promise using existing tools.",
+      learnFromDelivery: ["Observe what creates value.", "Track the greatest delivery friction."],
+      repeatedProofTarget: "Sell the same offer to three additional customers.",
+      nextInvestmentIfProven: "Automate the most time-consuming proven delivery step.",
+      reviseOrStopIf: "Fewer than two additional customers pay for the same offer.",
     },
-    keyUnknowns: [
+    criticalRisksAndUnknowns: [
       {
-        unknown: "Who pays first?",
-        howToResolve: "Track responses to the paid offer.",
+        concern: "Will target customers pay for the offer?",
+        decisionImpact: "Determines whether the idea should progress beyond validation.",
+        priority: "primary",
+        addressedDuring: "validation_plan",
+      },
+      {
+        concern: "Will the successful signal repeat with additional customers?",
+        decisionImpact: "Determines whether the next investment is justified.",
+        priority: "secondary",
+        addressedDuring: "after_validation",
       },
     ],
     recommendedStrategy: "test_manually_first",
@@ -277,9 +288,14 @@ describe("Idea analysis run", () => {
             costEstimate: "GBP 0-20",
           },
           afterValidation: {
-            deliverManually: "Edit and send the clips manually.",
-            learnFromCustomers: "Ask which clips mattered and what confused them.",
-            repeatBeforeScaling: "Sell the same offer at two more games.",
+            fulfilValidatedPromise: "Edit and send the purchased clips using existing tools.",
+            learnFromDelivery: [
+              "Track which clips buyers value.",
+              "Identify the most time-consuming delivery step.",
+            ],
+            repeatedProofTarget: "Sell the same offer at two more games.",
+            nextInvestmentIfProven: "Automate the most time-consuming proven editing step.",
+            reviseOrStopIf: "Players do not pay for the same offer at another game.",
           },
           keyUnknowns: [
             {
@@ -327,7 +343,7 @@ describe("Idea analysis run", () => {
     expect(result.status).toBe("analysis");
     if (result.status !== "analysis") throw new Error("Expected analysis response.");
     expect(result).toHaveProperty("validationPlan");
-    expect(result).toHaveProperty("keyUnknowns");
+    expect(result).toHaveProperty("criticalRisksAndUnknowns");
     expect(result).toHaveProperty("afterValidation");
     for (const field of [
       "smallestViableWedge",
@@ -336,9 +352,78 @@ describe("Idea analysis run", () => {
       "questionsToAskUsers",
       "evidenceNeededBeforeBuilding",
       "recommendedNextAction",
+      "mostDangerousAssumption",
+      "whyThisMightFail",
+      "keyUnknowns",
     ]) {
       expect(result).not.toHaveProperty(field);
     }
+  });
+
+  it("links the basketball Validation Plan to one primary Critical Risk or Unknown", async () => {
+    const primaryConcern =
+      "Will players repeatedly pay for structured highlights instead of using free alternatives?";
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        mostDangerousAssumption: "Players will pay for highlights.",
+        whyThisMightFail: ["Players may prefer free alternatives."],
+        keyUnknowns: [
+          {
+            unknown: "Will players pay for highlights?",
+            howToResolve: "Offer a paid highlight pack.",
+          },
+        ],
+        criticalRisksAndUnknowns: [
+          {
+            concern: primaryConcern,
+            decisionImpact:
+              "Determines whether the idea should progress beyond manual validation and whether editing automation would be justified.",
+            priority: "primary",
+            addressedDuring: "validation_plan",
+          },
+          {
+            concern: "Can automated editing preserve acceptable clip quality?",
+            decisionImpact:
+              "Determines whether automation can support the next investment without weakening the paid outcome.",
+            priority: "secondary",
+            addressedDuring: "after_validation",
+          },
+        ],
+        validationPlan: {
+          testType: "7_day_payment_validation",
+          testTypeLabel: "7-Day Payment Validation",
+          addressesConcern: primaryConcern,
+          goal: "Test repeat willingness to pay.",
+          offerOrExperiment: "Sell a manually edited highlight pack for EUR 5.",
+          steps: ["Record one game", "Offer the pack", "Collect payment"],
+          decisionRule: "Progress after at least two players pay EUR 5.",
+          constraints: [],
+          timeRequired: "7 days",
+          costEstimate: "EUR 0-20",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed basketball highlight platform idea.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.criticalRisksAndUnknowns).toHaveLength(2);
+    expect(result.criticalRisksAndUnknowns.filter((item) => item.priority === "primary")).toHaveLength(1);
+    expect(result.criticalRisksAndUnknowns[0]).toMatchObject({
+      concern: primaryConcern,
+      priority: "primary",
+      addressedDuring: "validation_plan",
+    });
+    expect(result.validationPlan.addressesConcern).toBe(primaryConcern);
+    expect(result).not.toHaveProperty("mostDangerousAssumption");
+    expect(result).not.toHaveProperty("whyThisMightFail");
+    expect(result).not.toHaveProperty("keyUnknowns");
   });
 
   it("marks Founder Fit unavailable when no founder profile exists", async () => {
@@ -504,6 +589,43 @@ describe("Idea analysis run", () => {
     expect(result.confidenceLevel).toBe("medium");
   });
 
+  it("does not present restated idea claims as observed evidence", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        painOrDesire: {
+          score: 5,
+          reason: "The problem is plausible but unproven.",
+          evidence: [
+            "The idea describes players wanting footage and highlights.",
+            "Players may value sharing clips with friends.",
+          ],
+          uncertainty: "Whether players will pay for footage.",
+        },
+        commercialPotential: {
+          score: 5,
+          reason: "There are plausible buyers but no payment proof.",
+          evidence: ["Two organizers have already paid EUR 50 for recorded games."],
+          uncertainty: "Whether organizers will purchase repeatedly.",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed basketball footage platform idea with no completed customer tests.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.painOrDesire.evidence).toEqual([]);
+    expect(result.commercialPotential.evidence).toEqual([
+      "Two organizers have already paid EUR 50 for recorded games.",
+    ]);
+    expect(result.painOrDesire.uncertainty).toMatch(/pay/i);
+  });
+
   it("does not recommend a software MVP when confidence and assessment scores are weak", async () => {
     const weakScore = {
       score: 3,
@@ -638,6 +760,38 @@ describe("Idea analysis run", () => {
     if (result.status !== "analysis") throw new Error("Expected analysis response.");
     expect(result.recommendedStrategy).toBe("research_first");
     expect(result.strategyReason).toMatch(/analysis|unknown|research/i);
+  });
+
+  it("provides a useful strategy reason when the model omits one", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        recommendedStrategy: "test_manually_first",
+        strategyReason: undefined,
+        validationPlan: {
+          testType: "7_day_payment_validation",
+          testTypeLabel: "7-Day Payment Validation",
+          goal: "Test whether basketball players will repeatedly pay for highlight packs.",
+          offerOrExperiment: "Sell a manually edited highlight pack for EUR 5.",
+          steps: ["Record one game", "Offer the pack to players", "Collect payment"],
+          decisionRule: "Progress after at least two players pay EUR 5.",
+          constraints: [],
+          timeRequired: "7 days",
+          costEstimate: "EUR 0-20",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed basketball highlight platform idea.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.strategyReason).toMatch(/payment|highlight pack|manually/i);
+    expect(result.strategyReason).not.toBe("This strategy matches the current evidence and uncertainty level.");
   });
 
   it("preserves organizational buyer and commitment constraints for a B2B idea", async () => {
@@ -815,18 +969,34 @@ describe("Idea analysis run", () => {
     });
   });
 
-  it("returns three to five decision-changing Key Unknowns with practical resolutions", async () => {
+  it("returns two to five decision-critical concerns without embedding resolution steps", async () => {
     const { runIdeaAnalysis } = createRunnerWithResponses([
       readyIntake(),
       completeAnalysis({
-        keyUnknowns: [
+        criticalRisksAndUnknowns: [
           {
-            unknown: "Commercial potential is unknown.",
-            howToResolve: "Conduct market research.",
+            concern: "Commercial potential is unknown.",
+            decisionImpact: "Conduct market research.",
+            priority: "primary",
+            addressedDuring: "validation_plan",
           },
           {
-            unknown: "Which buyer accepts the offer first?",
-            howToResolve: "Run a broad survey.",
+            concern: "Will operations leaders pay for the managed service?",
+            decisionImpact: "Determines whether the offer is worth repeating beyond the first test.",
+            priority: "primary",
+            addressedDuring: "validation_plan",
+          },
+          {
+            concern: "Will customers renew after the first delivery?",
+            decisionImpact: "Determines whether recurring investment is justified.",
+            priority: "secondary",
+            addressedDuring: "after_validation",
+          },
+          {
+            concern: "Which buyer segment should receive the first offer?",
+            decisionImpact: "Run a broad survey before deciding.",
+            priority: "secondary",
+            addressedDuring: "after_validation",
           },
         ],
       }),
@@ -840,43 +1010,197 @@ describe("Idea analysis run", () => {
 
     expect(result.status).toBe("analysis");
     if (result.status !== "analysis") throw new Error("Expected analysis response.");
-    expect(result.keyUnknowns.length).toBeGreaterThanOrEqual(3);
-    expect(result.keyUnknowns.length).toBeLessThanOrEqual(5);
-    expect(result.keyUnknowns.map((item) => item.unknown).join(" ")).not.toMatch(
+    expect(result.criticalRisksAndUnknowns.length).toBeGreaterThanOrEqual(2);
+    expect(result.criticalRisksAndUnknowns.length).toBeLessThanOrEqual(5);
+    expect(result.criticalRisksAndUnknowns.filter((item) => item.priority === "primary")).toHaveLength(1);
+    expect(result.criticalRisksAndUnknowns.map((item) => item.concern).join(" ")).not.toMatch(
       /commercial potential is unknown/i
     );
-    expect(result.keyUnknowns.map((item) => item.howToResolve).join(" ")).not.toMatch(
-      /market research|broad survey|build a prototype/i
+    expect(result.criticalRisksAndUnknowns.map((item) => item.decisionImpact).join(" ")).not.toMatch(
+      /conduct market research|run a survey|build a prototype/i
+    );
+    expect(result.criticalRisksAndUnknowns.map((item) => item.concern).join(" ")).not.toMatch(
+      /which buyer segment/i
+    );
+    expect(result.validationPlan.addressesConcern).toBe(
+      result.criticalRisksAndUnknowns.find((item) => item.priority === "primary")?.concern
     );
   });
 
-  it("keeps post-validation guidance manual, learning-focused, and repetition-gated", async () => {
+  it("keeps a material regulatory concern until before a larger investment", async () => {
     const { runIdeaAnalysis } = createRunnerWithResponses([
       readyIntake(),
       completeAnalysis({
-        afterValidation: {
-          deliverManually: "Build the full product for the first customer.",
-          learnFromCustomers: "Ask whether they liked it.",
-          repeatBeforeScaling: "Scale immediately after the first successful test.",
-        },
+        criticalRisksAndUnknowns: [
+          {
+            concern: "Will regulated buyers make a paid commitment after the feasibility test?",
+            decisionImpact: "Determines whether the service should progress beyond validation.",
+            priority: "primary",
+            addressedDuring: "validation_plan",
+          },
+          {
+            concern: "Will the larger deployment require regulatory approval?",
+            decisionImpact: "Determines whether a larger product investment is viable.",
+            priority: "secondary",
+            addressedDuring: "before_larger_investment",
+          },
+        ],
       }),
     ]);
 
     const result = await runIdeaAnalysis({
-      idea: "A detailed service idea with a concrete Validation Plan.",
+      idea: "A detailed regulated technical service with a paid feasibility offer.",
       model: "qwen3:8b",
       deepThinking: false,
     });
 
     expect(result.status).toBe("analysis");
     if (result.status !== "analysis") throw new Error("Expected analysis response.");
-    expect(result.afterValidation.deliverManually).toMatch(/manually|existing tools/i);
-    expect(result.afterValidation.deliverManually).not.toMatch(/build the full product/i);
-    expect(result.afterValidation.learnFromCustomers).toMatch(
-      /valued|confused|no-brainer|refer|others/i
+    expect(result.criticalRisksAndUnknowns).toContainEqual(
+      expect.objectContaining({
+        concern: expect.stringMatching(/regulatory approval/i),
+        addressedDuring: "before_larger_investment",
+      })
     );
-    expect(result.afterValidation.repeatBeforeScaling).toMatch(/repeat|additional|multiple/i);
-    expect(result.afterValidation.repeatBeforeScaling).not.toMatch(/scale immediately/i);
+  });
+
+  it("turns basketball validation into a repeated-payment investment gate", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        afterValidation: {
+          fulfilValidatedPromise: "Record games and manually deliver the purchased highlight package.",
+          learnFromDelivery: [
+            "Track which clips buyers value.",
+            "Compare whether players or organizers are the stronger buyer.",
+            "Identify the most time-consuming part of fulfilment.",
+          ],
+          repeatedProofTarget:
+            "Sell the same offer for three additional games, with at least two previous buyers paying again.",
+          nextInvestmentIfProven:
+            "Build a tiny prototype that automates the most time-consuming proven part of clip creation.",
+          reviseOrStopIf:
+            "Buyers do not pay again, refer another paying customer, or commit to another recording.",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed basketball highlight service with a concrete paid Validation Plan.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.afterValidation.fulfilValidatedPromise).toMatch(/purchased highlight package/i);
+    expect(result.afterValidation.learnFromDelivery).toHaveLength(3);
+    expect(result.afterValidation.repeatedProofTarget).toMatch(/three additional games.*two previous buyers/i);
+    expect(result.afterValidation.nextInvestmentIfProven).toMatch(/automates.*clip creation/i);
+    expect(result.afterValidation.nextInvestmentIfProven).not.toMatch(/full product|analytics|rankings/i);
+    expect(result.afterValidation.reviseOrStopIf).toMatch(/do not pay again/i);
+  });
+
+  it("gates a compliance service investment on repeat sales or subscription conversion", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        afterValidation: {
+          fulfilValidatedPromise:
+            "Complete the paid compliance audit and action plan using the customer's documents.",
+          learnFromDelivery: [
+            "Track which deadlines and documents create the most urgent value.",
+            "Measure which follow-up work customers request after the audit.",
+          ],
+          repeatedProofTarget:
+            "Sell the audit to three additional manufacturers and convert at least two into the monthly managed service.",
+          nextInvestmentIfProven:
+            "Automate the recurring document and deadline extraction that consumes the most delivery effort.",
+          reviseOrStopIf:
+            "Fewer than two customers continue into the monthly managed service after receiving the audit.",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed managed compliance deadline service for small food manufacturers.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.afterValidation.repeatedProofTarget).toMatch(/three additional manufacturers.*two.*monthly/i);
+    expect(result.afterValidation.nextInvestmentIfProven).toMatch(/automate.*document.*deadline/i);
+    expect(result.afterValidation.reviseOrStopIf).toMatch(/fewer than two.*continue/i);
+  });
+
+  it("adapts incomplete post-validation guidance for a regulated feasibility experiment", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        firstTestableVersion:
+          "Process anonymized customer samples and verify the result against an agreed safety threshold.",
+        validationPlan: {
+          testType: "non_payment_experiment",
+          testTypeLabel: "Behavioral Validation Experiment",
+          goal: "Prove technical feasibility before accepting payment.",
+          offerOrExperiment:
+            "Process anonymized customer samples and compare the results with the agreed safety threshold.",
+          steps: ["Recruit three design partners", "Process one anonymized sample for each"],
+          decisionRule: "Progress if at least two of three samples meet the agreed safety threshold.",
+          constraints: ["Do not accept payment before feasibility is established."],
+          timeRequired: "7 days",
+          costEstimate: "GBP 0-50",
+        },
+        afterValidation: {},
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A regulated technical product that must prove safe sample processing before customer delivery.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.afterValidation.fulfilValidatedPromise).toMatch(/anonymized customer samples|safety threshold/i);
+    expect(result.afterValidation.fulfilValidatedPromise).not.toMatch(/manual service/i);
+    expect(result.afterValidation.learnFromDelivery.length).toBeGreaterThanOrEqual(2);
+    expect(result.afterValidation.learnFromDelivery.length).toBeLessThanOrEqual(4);
+    expect(result.afterValidation.repeatedProofTarget).toMatch(/\d|at least|additional/i);
+    expect(result.afterValidation.nextInvestmentIfProven).toBeTruthy();
+    expect(result.afterValidation.reviseOrStopIf).toBeTruthy();
+  });
+
+  it("rejects a premature full-product investment after a single validation success", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([
+      readyIntake(),
+      completeAnalysis({
+        afterValidation: {
+          fulfilValidatedPromise: "Build the full product for the first validated customer.",
+          learnFromDelivery: ["Ask whether customers liked it."],
+          repeatedProofTarget: "Scale immediately after one successful test.",
+          nextInvestmentIfProven: "Build the full platform with every planned feature.",
+          reviseOrStopIf: "",
+        },
+      }),
+    ]);
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed service idea with one successful Validation Plan.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.afterValidation.fulfilValidatedPromise).not.toMatch(/build the full product/i);
+    expect(result.afterValidation.learnFromDelivery.length).toBeGreaterThanOrEqual(2);
+    expect(result.afterValidation.repeatedProofTarget).not.toMatch(/scale immediately|one successful/i);
+    expect(result.afterValidation.nextInvestmentIfProven).not.toMatch(/full platform|every planned feature/i);
+    expect(result.afterValidation.reviseOrStopIf).toBeTruthy();
   });
 
   it("reports malformed model JSON as a clear analysis failure", async () => {

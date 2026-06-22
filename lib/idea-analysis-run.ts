@@ -394,6 +394,15 @@ function scoreLabel(score: number) {
   return "Exceptional";
 }
 
+const OBSERVED_EVIDENCE_CLAIM =
+  /\b(?:paid|payment|revenue|sales?|deposit|pre-?order|purchase order|signed pilot|existing customers?|customer data|interviewed|observed|tested|test result|measured|tracked|repeat(?:ed)? (?:use|purchase|payment)|currently (?:use|uses|using|spend|spends|pay|pays)|direct (?:customer|user) access|founder (?:has|runs|organizes|organises|worked|built|sold|delivered)|domain experience|industry experience)\b/i;
+
+function normalizeObservedEvidence(value: unknown) {
+  return normalizeArrayField(value)
+    .filter((item) => OBSERVED_EVIDENCE_CLAIM.test(item))
+    .slice(0, 5);
+}
+
 function normalizeScore(value: unknown) {
   const assessment = isRecord(value) ? value : {};
   const rawScore = Number(assessment.score);
@@ -407,7 +416,7 @@ function normalizeScore(value: unknown) {
     reason:
       String(assessment.reason ?? "").trim() ||
       "There is not enough evidence to support a stronger score.",
-    evidence: normalizeArrayField(assessment.evidence).slice(0, 5),
+    evidence: normalizeObservedEvidence(assessment.evidence),
     uncertainty:
       String(assessment.uncertainty ?? "").trim() ||
       "Important assumptions remain unverified.",
@@ -502,6 +511,31 @@ function normalizeRecommendedStrategy(
   return { strategy: requested };
 }
 
+function fallbackStrategyReason(strategy: RecommendedStrategy, parsed: Record<string, unknown>) {
+  const validationPlan = isRecord(parsed.validationPlan) ? parsed.validationPlan : {};
+  const offerOrExperiment = String(validationPlan.offerOrExperiment ?? "").trim();
+  const goal = String(validationPlan.goal ?? "").trim();
+  const test = offerOrExperiment || "the Validation Plan";
+  const purpose = goal || "the most important remaining assumption";
+
+  switch (strategy) {
+    case "research_first":
+      return "Resolve the most important customer and market unknowns before committing to a product build.";
+    case "test_manually_first":
+      return `Test ${test} before building further because it can validate ${purpose} with real customer behavior.`;
+    case "build_tiny_prototype":
+      return `Build only the smallest prototype needed to test ${purpose} before investing in a broader product.`;
+    case "build_software_mvp":
+      return "A focused software MVP is justified because software is necessary for the test and the current evidence supports the investment.";
+    case "pause":
+      return "Pause further investment until the idea becomes a clearer priority or stronger evidence emerges.";
+    case "kill":
+      return "Stop pursuing this version because the current pain, founder fit, or commercial evidence does not justify another test.";
+    case "clarify_more":
+      return "Clarify the customer, problem, and proposed solution before choosing a validation strategy.";
+  }
+}
+
 function isScoreArea(value: unknown): value is ScoreArea {
   return typeof value === "string" && SCORE_AREAS.some((area) => area === value);
 }
@@ -563,6 +597,7 @@ function normalizeValidationPlan(parsed: Record<string, unknown>) {
       testType === "7_day_payment_validation"
         ? "7-Day Payment Validation"
         : "Behavioral Validation Experiment",
+    addressesConcern: String(value.addressesConcern ?? "").trim(),
     goal:
       String(value.goal ?? "").trim() ||
       "Test the most important assumption with observable real-world behavior.",
@@ -577,91 +612,108 @@ function normalizeValidationPlan(parsed: Record<string, unknown>) {
 
 function normalizeAfterValidation(parsed: Record<string, unknown>) {
   const value = isRecord(parsed.afterValidation) ? parsed.afterValidation : {};
-  const requestedDelivery = String(value.deliverManually ?? "").trim();
-  const requestedLearning = String(value.learnFromCustomers ?? "").trim();
-  const requestedRepeat = String(value.repeatBeforeScaling ?? "").trim();
+  const validationPlan = isRecord(parsed.validationPlan) ? parsed.validationPlan : {};
+  const firstTestableVersion = String(parsed.firstTestableVersion ?? "").trim();
+  const offerOrExperiment = String(validationPlan.offerOrExperiment ?? "").trim();
+  const validatedPromise = firstTestableVersion || offerOrExperiment || "the validated offer";
+  const learningPriorities = normalizeArrayField(value.learnFromDelivery).slice(0, 4);
+  const requestedFulfilment = String(value.fulfilValidatedPromise ?? "").trim();
+  const requestedRepeatedProof = String(value.repeatedProofTarget ?? "").trim();
+  const requestedNextInvestment = String(value.nextInvestmentIfProven ?? "").trim();
+  const learningFallbacks = [
+    `Identify which part of ${validatedPromise} creates the strongest customer value.`,
+    "Track the delivery friction, cost, or risk that most affects whether the validated promise can be repeated.",
+  ];
+
   return {
-    deliverManually:
-      requestedDelivery && !/\b(build (?:the )?full product|full platform|software mvp|scale)\b/i.test(requestedDelivery)
-        ? requestedDelivery
-        : "Fulfil the promise manually for the first validated customers using existing tools.",
-    learnFromCustomers:
-      requestedLearning &&
-      /\b(valued?|confus|no-brainer|refer|others|introduc|behavior|behaviour)\b/i.test(
-        requestedLearning
-      )
-        ? requestedLearning
-        : "Observe what customers valued, what confused them, what would make the offer a no-brainer, and whether they know others who want it.",
-    repeatBeforeScaling:
-      requestedRepeat &&
-      /\b(additional|multiple|several|keep paying|repeated|two|three|\d+)\b/i.test(requestedRepeat) &&
-      !/\b(immediately|after (?:one|the first|a single)|single successful)\b/i.test(requestedRepeat)
-        ? requestedRepeat
-        : "Repeat the same validation signal and manual delivery with additional customers before systematizing, scaling, or building a full product.",
+    fulfilValidatedPromise:
+      requestedFulfilment && !/\bbuild (?:the )?(?:full product|full platform)\b/i.test(requestedFulfilment)
+        ? requestedFulfilment
+        : `Fulfil ${validatedPromise} for the first validated customers using the simplest appropriate approach.`,
+    learnFromDelivery: [...learningPriorities, ...learningFallbacks]
+      .filter((item, index, items) => items.indexOf(item) === index)
+      .slice(0, Math.max(2, Math.min(4, learningPriorities.length || 2))),
+    repeatedProofTarget:
+      requestedRepeatedProof &&
+      !/\bscale immediately|after (?:one|a single|the first) successful\b/i.test(requestedRepeatedProof)
+        ? requestedRepeatedProof
+        : "Repeat the successful Validation Plan signal with at least three additional target customers.",
+    nextInvestmentIfProven:
+      requestedNextInvestment &&
+      !/\bfull (?:product|platform)|every planned feature|all planned features\b/i.test(requestedNextInvestment)
+        ? requestedNextInvestment
+        : "Invest only in the smallest improvement justified by repeated customer value or observed delivery friction.",
+    reviseOrStopIf:
+      String(value.reviseOrStopIf ?? "").trim() ||
+      "Revise, pause, or stop if the successful signal does not repeat with additional target customers.",
   };
 }
 
-function normalizeKeyUnknowns(parsed: Record<string, unknown>) {
-  const value = Array.isArray(parsed.keyUnknowns) ? parsed.keyUnknowns : [];
-  const validationPlan = isRecord(parsed.validationPlan) ? parsed.validationPlan : {};
-  const isGenericUnknown = (unknown: string) =>
-    /\b(founder'?s? ability to build|commercial potential (?:is )?(?:unknown|unclear|not well established)|more research is needed)\b/i.test(
-      unknown
-    );
-  const resolutionContext =
-    validationPlan.testType === "7_day_payment_validation"
-      ? "Resolve this by tracking who accepts the paid offer and asking paying customers during manual delivery."
-      : "Resolve this by observing participant behavior during the Validation Plan and asking follow-up questions immediately afterward.";
+function normalizeCriticalConcerns(parsed: Record<string, unknown>) {
+  const value = Array.isArray(parsed.criticalRisksAndUnknowns)
+    ? parsed.criticalRisksAndUnknowns
+    : [];
+  const allowedStages = ["validation_plan", "after_validation", "before_larger_investment"];
   const normalized = value
     .filter(isRecord)
     .map((item) => ({
-      unknown: String(item.unknown ?? "").trim(),
-      howToResolve: String(item.howToResolve ?? "").trim(),
+      concern: String(item.concern ?? "").trim(),
+      decisionImpact: String(item.decisionImpact ?? "").trim(),
+      priority: item.priority === "primary" ? "primary" : "secondary",
+      addressedDuring: allowedStages.includes(String(item.addressedDuring))
+        ? String(item.addressedDuring)
+        : "after_validation",
     }))
-    .filter((item) => item.unknown && item.howToResolve)
-    .filter((item) => !isGenericUnknown(item.unknown))
-    .map((item) => ({
-      ...item,
-      howToResolve: /\b(conduct|run|do) (?:a )?(?:broad )?(?:market research|surveys?)\b|\bbuild a prototype\b/i.test(
-        item.howToResolve
-      )
-        ? resolutionContext
-        : item.howToResolve,
-    }));
+    .filter((item) => item.concern && item.decisionImpact)
+    .filter(
+      (item) =>
+        !/\bmore research is needed|commercial potential is unknown|founder'?s? ability to build\b/i.test(
+          item.concern
+        )
+    )
+    .filter(
+      (item) =>
+        !/\b(?:conduct|run|do|commission|perform|build|create|offer|ask|interview|survey|research|test|track|measure|observe)\b/i.test(
+          item.decisionImpact
+        )
+    );
 
   const fallbacks = [
     {
-      unknown: "Which customer segment shows the strongest commitment to this offer?",
-      howToResolve:
-        "Track acceptance, refusal, and the stated reason for each target customer approached during the Validation Plan.",
+      concern: "Will target customers make the commitment required by the Validation Plan?",
+      decisionImpact: "Determines whether the idea should progress beyond the immediate validation.",
+      priority: "primary",
+      addressedDuring: "validation_plan",
     },
     {
-      unknown: "Which part of the offer creates enough value for customers to act?",
-      howToResolve:
-        "Observe which outcome customers request or use, then ask validated customers what made them commit.",
-    },
-    {
-      unknown: "Can the promise be delivered manually within acceptable time, cost, and quality limits?",
-      howToResolve:
-        "Record fulfilment time, direct cost, quality problems, and customer corrections for every manual delivery.",
-    },
-    {
-      unknown: "Will the successful validation signal repeat with additional customers?",
-      howToResolve:
-        "Repeat the same offer or experiment with additional target customers before systematizing or scaling.",
+      concern: "Will the successful signal repeat with additional target customers?",
+      decisionImpact: "Determines whether the next investment is justified.",
+      priority: "secondary",
+      addressedDuring: "after_validation",
     },
   ];
   const seen = new Set<string>();
-
-  return [...normalized, ...fallbacks]
-    .filter((item) => !isGenericUnknown(item.unknown))
+  const concerns = [
+    ...normalized,
+    ...(normalized.length >= 2 ? [] : fallbacks),
+  ]
     .filter((item) => {
-      const key = item.unknown.toLowerCase();
+      const key = item.concern.toLowerCase();
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
     .slice(0, 5);
+  const primaryIndex = concerns.findIndex((item) => item.priority === "primary");
+
+  return concerns.map((item, index) => ({
+    ...item,
+    priority: index === (primaryIndex >= 0 ? primaryIndex : 0) ? "primary" : "secondary",
+    addressedDuring:
+      index === (primaryIndex >= 0 ? primaryIndex : 0)
+        ? "validation_plan"
+        : item.addressedDuring,
+  }));
 }
 
 const SCORE_RECOMMENDATION_FALLBACKS: Record<
@@ -790,18 +842,18 @@ ${idea}`,
         {
           role: "system",
           content:
-            "You are a skeptical product strategist. Analyze startup ideas with practical scrutiny. Scores estimate current evidence strength, not excitement. Missing evidence lowers scores. Scores above 8 are rare and require exceptional proof. Separate what is known, assumed, and uncertain. Never invent evidence or missing business context. Prefer manual validation before building software. Use the founder profile when assessing founder fit, but never quote or reproduce its source text. If the founder profile is missing or empty, founder fit must be marked not available and must not receive a numeric score. Return only valid JSON. No markdown, no commentary outside the JSON.",
+            "You are a skeptical product strategist. Analyze startup ideas with practical scrutiny. Scores estimate current evidence strength, not excitement. Missing evidence lowers scores. Scores above 8 are rare and require exceptional proof. Separate what is known, assumed, and uncertain. Never invent evidence or missing business context. Prefer manual validation before building software. Use the founder profile when assessing founder fit, but never quote or reproduce its source text. If the founder profile is missing or empty, founder fit must be marked not available and must not receive a numeric score. Treat claims and descriptions in the submitted idea as context, not observed evidence, unless they explicitly report completed tests, payments, customer behavior, customer data, or demonstrated founder experience/access. Return only valid JSON. No markdown, no commentary outside the JSON.",
         },
         {
           role: "user",
-          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, firstTestableVersion, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, scoreImprovementRecommendations, mostDangerousAssumption, whyThisMightFail, whatNotToBuildYet, validationPlan, afterValidation, keyUnknowns, recommendedStrategy, recommendedStrategyLabel, strategyReason.
+          content: `Analyze the following business idea and return only valid JSON with exactly these fields: ideaSummary, oneSentenceVerdict, strongestVersion, firstTestableVersion, targetCustomer, corePainOrDesire, founderFit, painOrDesire, mvpTestability, commercialPotential, scoreSummary, confidenceLevel, scoreImprovementRecommendations, whatNotToBuildYet, criticalRisksAndUnknowns, validationPlan, afterValidation, recommendedStrategy, recommendedStrategyLabel, strategyReason.
 
 Each of founderFit, painOrDesire, mvpTestability, and commercialPotential must be an object with exactly:
 score: integer from 1 to 10
 label: string
 reason: concise explanation of why the current evidence supports this score
-evidence: array of concrete evidence explicitly present in the idea or founder profile
-uncertainty: the most important unknown or assumption affecting the score
+evidence: array containing only genuine observed evidence explicitly reported in the idea or founder profile, such as completed tests, payments, measured customer behavior, direct customer access, or demonstrated founder experience; use an empty array when none exists and never restate the idea description as evidence
+uncertainty: one concise piece of evidence or real-world result that would materially change the score
 
 Use this universal scale:
 1-2 = Very weak
@@ -854,6 +906,7 @@ Prefer conservative scores. If evidence is missing, say so clearly. Focus on the
 validationPlan is the single immediate next action and must contain exactly:
 - testType: exactly "7_day_payment_validation" or "non_payment_experiment"
 - testTypeLabel: exactly "7-Day Payment Validation" or "Behavioral Validation Experiment"
+- addressesConcern: repeat the exact primary concern that this plan addresses
 - goal: the most important assumption being tested
 - offerOrExperiment: a concrete paid offer or observable real-world experiment
 - steps: 4 to 7 concrete actions completed within 7 days
@@ -871,19 +924,31 @@ Validation-plan rules:
 - Do not include inverse failure criteria. constraints are only for distinct limits such as manual fulfilment time, delivery cost, regulation, or safety.
 
 afterValidation must contain exactly:
-- deliverManually: how to fulfil the promise for the first validated customers without a full product
-- learnFromCustomers: what to learn from delivery and conversations, including what they valued, what confused them, what would make it a no-brainer, and whether they know others who would want it
-- repeatBeforeScaling: how to repeat the successful validation signal with additional customers and what repeated signal should exist before systematizing or scaling
+- fulfilValidatedPromise: how to fulfil the promise proven by the Validation Plan using the simplest approach appropriate to the business model, without building the full product
+- learnFromDelivery: 2 to 4 concise, decision-relevant learning priorities about the offer, buyer, economics, customer value, or observed delivery friction
+- repeatedProofTarget: a measurable repeated signal, including a number of additional customers, purchases, uses, or commitments, that would justify the next investment
+- nextInvestmentIfProven: the smallest next investment unlocked by repeated proof, chosen from observed customer value or delivery friction rather than the original feature wish list
+- reviseOrStopIf: the result that means revise the offer, pause, or stop instead of investing
 
-keyUnknowns must contain 3 to 5 objects with exactly:
-- unknown: one critical missing piece of information that could change the offer or decision
-- howToResolve: the concise question, observation, or paid test that resolves it during payment validation or manual delivery
+After-Validation rules:
+- Assume the Validation Plan succeeded once. Do not repeat the Validation Plan.
+- Adapt fulfilment to the business model. Prefer manual or existing-tool delivery when practical, but do not force manual service delivery for hardware, marketplaces, content, regulated products, or technical-feasibility experiments.
+- Focus repeatedProofTarget on repetition of the important validated behavior, especially repeat payment when relevant.
+- Do not automatically use manual-delivery efficiency as the investment gate when automation is part of the intended solution.
+- nextInvestmentIfProven must not jump to unrelated features or the full product.
 
-Key-unknown rules:
-- Include only unknowns that could change the buyer, offer, price, manual delivery, or decision to repeat the sale.
-- Resolve them through the Validation Plan or conversations and observations during manual delivery.
-- Do not recommend generic market research, surveys, or building a prototype.
-- Do not include broad statements such as "commercial potential is unknown" or "founder ability to build is unknown".
+criticalRisksAndUnknowns must contain 2 to 5 objects with exactly:
+- concern: one known risk or unresolved assumption that could materially change a decision
+- decisionImpact: one concise sentence naming the decision affected, such as proceed, pause, stop, change buyer, change offer, revise price, or make a specific investment
+- priority: exactly "primary" or "secondary"
+- addressedDuring: exactly "validation_plan", "after_validation", or "before_larger_investment"
+
+Critical-risk rules:
+- Include exactly one primary concern. It should usually be addressed during validation_plan and must match validationPlan.addressesConcern exactly.
+- Include only decision-critical concerns. Omit generic startup risks, minor cautions, and broad statements.
+- Do not include investigation steps, questions, tests, or resolution methods.
+- Use after_validation for concerns about repeatability, delivery learning, or the next investment.
+- Use before_larger_investment for known regulatory, legal, safety, or operational risks that could change a larger commitment.
 
 Return only valid JSON. No markdown or commentary outside JSON.
 
@@ -908,11 +973,19 @@ ${founderProfileSection}`,
       );
     }
 
-    parsed.whyThisMightFail = normalizeArrayField(parsed.whyThisMightFail);
     parsed.whatNotToBuildYet = normalizeArrayField(parsed.whatNotToBuildYet);
     parsed.validationPlan = normalizeValidationPlan(parsed);
     parsed.afterValidation = normalizeAfterValidation(parsed);
-    parsed.keyUnknowns = normalizeKeyUnknowns(parsed);
+    parsed.criticalRisksAndUnknowns = normalizeCriticalConcerns(parsed);
+    const primaryConcern = (
+      parsed.criticalRisksAndUnknowns as ReturnType<typeof normalizeCriticalConcerns>
+    ).find((item) => item.priority === "primary");
+    parsed.validationPlan = {
+      ...(parsed.validationPlan as ReturnType<typeof normalizeValidationPlan>),
+      addressesConcern:
+        primaryConcern?.concern ||
+        (parsed.validationPlan as ReturnType<typeof normalizeValidationPlan>).addressesConcern,
+    };
     const validationPlan = parsed.validationPlan as ReturnType<typeof normalizeValidationPlan>;
     const ideaSummary = String(parsed.ideaSummary ?? idea).trim();
     const targetCustomer = String(parsed.targetCustomer ?? "").trim();
@@ -977,7 +1050,7 @@ ${founderProfileSection}`,
     parsed.strategyReason =
       normalizedStrategy.reason ||
       String(parsed.strategyReason ?? "").trim() ||
-      "This strategy matches the current evidence and uncertainty level.";
+      fallbackStrategyReason(normalizedStrategy.strategy, parsed);
     const performance = buildPerformance(model, performanceAccumulator);
     logPerformance(performance);
 
@@ -996,12 +1069,10 @@ ${founderProfileSection}`,
       scoreSummary: parsed.scoreSummary,
       confidenceLevel: parsed.confidenceLevel,
       scoreImprovementRecommendations: parsed.scoreImprovementRecommendations,
-      mostDangerousAssumption: parsed.mostDangerousAssumption,
-      whyThisMightFail: parsed.whyThisMightFail,
       whatNotToBuildYet: parsed.whatNotToBuildYet,
+      criticalRisksAndUnknowns: parsed.criticalRisksAndUnknowns,
       validationPlan: parsed.validationPlan,
       afterValidation: parsed.afterValidation,
-      keyUnknowns: parsed.keyUnknowns,
       recommendedStrategy: parsed.recommendedStrategy,
       recommendedStrategyLabel: parsed.recommendedStrategyLabel,
       strategyReason: parsed.strategyReason,

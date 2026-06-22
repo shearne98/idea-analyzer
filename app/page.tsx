@@ -110,6 +110,19 @@ export default function Home() {
     }
   };
 
+  const concernStageLabel = (
+    stage: AnalysisResponse["criticalRisksAndUnknowns"][number]["addressedDuring"]
+  ) => {
+    switch (stage) {
+      case "validation_plan":
+        return "Validation Plan";
+      case "after_validation":
+        return "After Validation";
+      case "before_larger_investment":
+        return "Before larger investment";
+    }
+  };
+
   async function analyzeIdea(ideaToAnalyze: string) {
     setError("");
     setResult(null);
@@ -449,10 +462,10 @@ export default function Home() {
                   <p className="mt-3 text-sm leading-6 text-slate-600">{result.targetCustomer}</p>
                 </div>
               ) : null}
-              {hasContent(result.mostDangerousAssumption) ? (
+              {hasContent(result.corePainOrDesire) ? (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
-                  <h3 className="text-base font-semibold text-slate-900">Most Dangerous Assumption</h3>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{result.mostDangerousAssumption}</p>
+                  <h3 className="text-base font-semibold text-slate-900">Core Pain or Desire</h3>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">{result.corePainOrDesire}</p>
                 </div>
               ) : null}
             </div>
@@ -515,27 +528,22 @@ export default function Home() {
                       </span>
                     </div>
                     <p className="mt-4 text-sm leading-6 text-slate-600">{assessment.reason}</p>
-                    <details className="mt-4 border-t border-slate-100 pt-3">
-                      <summary className="cursor-pointer text-xs font-semibold text-slate-600">Basis &amp; uncertainty</summary>
-                      <div className="mt-3 space-y-3 text-xs leading-5 text-slate-600">
-                        <div>
-                          <p className="font-semibold text-slate-700">Basis</p>
-                          {assessment.evidence.length > 0 ? (
-                            <ul className="mt-1 list-disc space-y-1 pl-4 marker:text-slate-400">
-                              {assessment.evidence.map((item) => (
-                                <li key={item}>{item}</li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="mt-1 text-slate-500">No direct evidence provided.</p>
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-slate-700">Uncertainty</p>
-                          <p className="mt-1">{assessment.uncertainty}</p>
-                        </div>
+                    <div className="mt-4 space-y-3 border-t border-slate-100 pt-3 text-xs leading-5 text-slate-600">
+                      <div>
+                        <p className="font-semibold text-slate-700">What would change the score</p>
+                        <p className="mt-1">{assessment.uncertainty}</p>
                       </div>
-                    </details>
+                      {assessment.evidence.length > 0 ? (
+                        <div>
+                          <p className="font-semibold text-slate-700">Evidence observed</p>
+                          <ul className="mt-1 list-disc space-y-1 pl-4 marker:text-slate-400">
+                            {assessment.evidence.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -544,10 +552,43 @@ export default function Home() {
               </p>
             </div>
 
-            {hasContent(result.whyThisMightFail) ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
-                <h3 className="text-base font-semibold text-slate-900">Risks &amp; Assumptions</h3>
-                {renderListOrParagraph(result.whyThisMightFail)}
+            {result.criticalRisksAndUnknowns.length > 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
+                <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                  Critical Risks &amp; Unknowns
+                </h3>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                  The concerns most likely to change whether, when, or how this idea should progress.
+                </p>
+                <div className="mt-5 space-y-4">
+                  {result.criticalRisksAndUnknowns.map((item, index) => (
+                    <div
+                      key={`${item.concern}-${index}`}
+                      className={
+                        item.priority === "primary"
+                          ? "rounded-xl border border-amber-200 bg-amber-50/60 p-5"
+                          : "rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      }
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={
+                            item.priority === "primary"
+                              ? "rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-semibold text-amber-800"
+                              : "rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600"
+                          }
+                        >
+                          {item.priority === "primary" ? "Primary concern" : "Secondary concern"}
+                        </span>
+                        <span className="text-xs font-medium text-slate-500">
+                          Address during: {concernStageLabel(item.addressedDuring)}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-sm font-semibold leading-6 text-slate-900">{item.concern}</p>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">{item.decisionImpact}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
 
@@ -566,6 +607,14 @@ export default function Home() {
                   ? "Ask for payment or a binding commitment before investing in a full product."
                   : "Use observable behavior to test the most important assumption before making a larger commitment."}
               </p>
+              {hasContent(result.validationPlan.addressesConcern) ? (
+                <div className="mt-4 rounded-xl border border-sky-200 bg-white/80 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">Addresses</p>
+                  <p className="mt-1 text-sm font-medium leading-6 text-slate-800">
+                    {result.validationPlan.addressesConcern}
+                  </p>
+                </div>
+              ) : null}
               <div className="mt-5 grid gap-6 sm:grid-cols-2">
                 <div className="space-y-6">
                   {hasContent(result.validationPlan.goal) ? (
@@ -628,39 +677,44 @@ export default function Home() {
               </div>
             </div>
 
-            {result.keyUnknowns.length > 0 ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
-                <h3 className="text-lg font-semibold tracking-tight text-slate-950">Key Unknowns</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Critical information to resolve during the Validation Plan or manual delivery.
-                </p>
-                <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  {result.keyUnknowns.map((item, index) => (
-                    <div key={`${item.unknown}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-sm font-semibold leading-6 text-slate-800">{item.unknown}</p>
-                      <p className="mt-2 text-xs leading-5 text-slate-600">{item.howToResolve}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50 sm:p-8">
               <h3 className="text-lg font-semibold tracking-tight text-slate-950">After Validation</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Fulfil the promise first. Build and scale only after the successful signal repeats.
+                If the Validation Plan succeeds, use real delivery and repeated proof to decide what investment comes next.
               </p>
-              <div className="mt-5 grid gap-4 sm:grid-cols-3">
-                {[
-                  { title: "Deliver manually", text: result.afterValidation.deliverManually },
-                  { title: "Learn from customers", text: result.afterValidation.learnFromCustomers },
-                  { title: "Repeat before scaling", text: result.afterValidation.repeatBeforeScaling },
-                ].map(({ title, text }) => (
-                  <div key={title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-800">{title}</p>
-                    <p className="mt-2 text-xs leading-5 text-slate-600">{text}</p>
-                  </div>
-                ))}
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-800">Fulfil the validated promise</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">
+                    {result.afterValidation.fulfilValidatedPromise}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-800">Learn during delivery</p>
+                  <ul className="mt-2 list-disc space-y-1.5 pl-4 text-xs leading-5 text-slate-600 marker:text-slate-400">
+                    {result.afterValidation.learnFromDelivery.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-4">
+                  <p className="text-sm font-semibold text-slate-800">Repeated proof target</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">
+                    {result.afterValidation.repeatedProofTarget}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+                  <p className="text-sm font-semibold text-slate-800">If proven, invest next in</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">
+                    {result.afterValidation.nextInvestmentIfProven}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4 sm:col-span-2">
+                  <p className="text-sm font-semibold text-slate-800">Revise or stop if</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">
+                    {result.afterValidation.reviseOrStopIf}
+                  </p>
+                </div>
               </div>
             </div>
 
