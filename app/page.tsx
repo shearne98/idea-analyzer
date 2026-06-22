@@ -10,6 +10,11 @@ import {
   type AnalyzeResponse,
   type ClarificationResponse,
 } from "@/lib/analysis-types";
+import {
+  buildAnalysisViewModel,
+  formatList,
+  hasDisplayContent,
+} from "@/lib/analysis-rendering";
 import { combineIdeaWithClarification } from "@/lib/idea-intake";
 import {
   ANALYSIS_MODES,
@@ -59,22 +64,6 @@ export default function Home() {
     };
   }, []);
 
-  const formatList = (value: unknown): string[] => {
-    if (Array.isArray(value)) return value.map((item) => String(item));
-    if (typeof value === "string") {
-      return value
-        .split(/\r?\n/)
-        .map((item) => item.trim())
-        .filter(Boolean);
-    }
-    return [];
-  };
-
-  const hasContent = (value: unknown) => {
-    if (Array.isArray(value)) return value.length > 0;
-    return typeof value === "string" && value.trim().length > 0;
-  };
-
   const renderListOrParagraph = (value: unknown) => {
     const items = formatList(value);
 
@@ -89,38 +78,6 @@ export default function Home() {
         ))}
       </ul>
     );
-  };
-
-  const strategyStyles = (strategy: AnalysisResponse["recommendedStrategy"]) => {
-    switch (strategy) {
-      case "clarify_more":
-      case "research_first":
-        return "border-sky-200 bg-sky-50 text-sky-800";
-      case "test_manually_first":
-        return "border-amber-200 bg-amber-50 text-amber-800";
-      case "build_tiny_prototype":
-      case "build_software_mvp":
-        return "border-emerald-200 bg-emerald-50 text-emerald-800";
-      case "pause":
-        return "border-slate-300 bg-slate-100 text-slate-700";
-      case "kill":
-        return "border-rose-200 bg-rose-50 text-rose-800";
-      default:
-        return "border-slate-300 bg-slate-100 text-slate-700";
-    }
-  };
-
-  const concernStageLabel = (
-    stage: AnalysisResponse["criticalRisksAndUnknowns"][number]["addressedDuring"]
-  ) => {
-    switch (stage) {
-      case "validation_plan":
-        return "Validation Plan";
-      case "after_validation":
-        return "After Validation";
-      case "before_larger_investment":
-        return "Before larger investment";
-    }
   };
 
   async function analyzeIdea(ideaToAnalyze: string) {
@@ -222,6 +179,7 @@ export default function Home() {
   }
 
   const selectedAnalysisMode = findAnalysisMode(selectedAnalysisModeId);
+  const analysisViewModel = result ? buildAnalysisViewModel(result) : null;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" aria-busy={isLoading}>
@@ -425,7 +383,7 @@ export default function Home() {
               <div className="border-b border-slate-200 bg-slate-50/70 px-6 py-5 sm:px-9">
                 <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <span
-                    className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${strategyStyles(result.recommendedStrategy)}`}
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${analysisViewModel?.strategyStyle}`}
                   >
                     {result.recommendedStrategyLabel}
                   </span>
@@ -444,7 +402,7 @@ export default function Home() {
                 <h2 className="mt-3 max-w-3xl text-2xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-3xl">
                   {result.oneSentenceVerdict}
                 </h2>
-                {hasContent(result.strategyReason) ? (
+                {hasDisplayContent(result.strategyReason) ? (
                   <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
                     {result.strategyReason}
                   </p>
@@ -456,13 +414,13 @@ export default function Home() {
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">
-              {hasContent(result.targetCustomer) ? (
+              {hasDisplayContent(result.targetCustomer) ? (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
                   <h3 className="text-base font-semibold text-slate-900">Target Customer</h3>
                   <p className="mt-3 text-sm leading-6 text-slate-600">{result.targetCustomer}</p>
                 </div>
               ) : null}
-              {hasContent(result.corePainOrDesire) ? (
+              {hasDisplayContent(result.corePainOrDesire) ? (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
                   <h3 className="text-base font-semibold text-slate-900">Core Pain or Desire</h3>
                   <p className="mt-3 text-sm leading-6 text-slate-600">{result.corePainOrDesire}</p>
@@ -476,20 +434,20 @@ export default function Home() {
                 Keep the long-term opportunity separate from what should be tested now.
               </p>
               <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                {hasContent(result.firstTestableVersion) ? (
+                {hasDisplayContent(result.firstTestableVersion) ? (
                   <div className="rounded-2xl border border-sky-200 bg-sky-50/50 p-5 lg:row-span-2">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Build or deliver now</p>
                     <h3 className="mt-2 text-base font-semibold text-slate-900">First Testable Version</h3>
                     <p className="mt-3 text-sm leading-6 text-slate-600">{result.firstTestableVersion}</p>
                   </div>
                 ) : null}
-                {hasContent(result.strongestVersion) ? (
+                {hasDisplayContent(result.strongestVersion) ? (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                     <h3 className="text-base font-semibold text-slate-900">Strongest Version</h3>
                     <p className="mt-3 text-sm leading-6 text-slate-600">{result.strongestVersion}</p>
                   </div>
                 ) : null}
-                {hasContent(result.whatNotToBuildYet) ? (
+                {hasDisplayContent(result.whatNotToBuildYet) ? (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                     <h3 className="text-base font-semibold text-slate-900">What Not To Build Yet</h3>
                     {renderListOrParagraph(result.whatNotToBuildYet)}
@@ -511,12 +469,7 @@ export default function Home() {
                 </span>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                {[
-                  { title: "Founder Fit", assessment: result.founderFit },
-                  { title: "Pain / Desire", assessment: result.painOrDesire },
-                  { title: "MVP Testability", assessment: result.mvpTestability },
-                  { title: "Commercial Potential", assessment: result.commercialPotential },
-                ].map(({ title, assessment }) => (
+                {analysisViewModel?.scoreCards.map(({ title, assessment }) => (
                   <div key={title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
                     <div className="flex items-center justify-between gap-4">
                       <div>
@@ -561,7 +514,7 @@ export default function Home() {
                   The concerns most likely to change whether, when, or how this idea should progress.
                 </p>
                 <div className="mt-5 space-y-4">
-                  {result.criticalRisksAndUnknowns.map((item, index) => (
+                  {analysisViewModel?.criticalConcerns.map((item, index) => (
                     <div
                       key={`${item.concern}-${index}`}
                       className={
@@ -581,7 +534,7 @@ export default function Home() {
                           {item.priority === "primary" ? "Primary concern" : "Secondary concern"}
                         </span>
                         <span className="text-xs font-medium text-slate-500">
-                          Address during: {concernStageLabel(item.addressedDuring)}
+                          Address during: {item.stageLabel}
                         </span>
                       </div>
                       <p className="mt-3 text-sm font-semibold leading-6 text-slate-900">{item.concern}</p>
@@ -607,7 +560,7 @@ export default function Home() {
                   ? "Ask for payment or a binding commitment before investing in a full product."
                   : "Use observable behavior to test the most important assumption before making a larger commitment."}
               </p>
-              {hasContent(result.validationPlan.addressesConcern) ? (
+              {hasDisplayContent(result.validationPlan.addressesConcern) ? (
                 <div className="mt-4 rounded-xl border border-sky-200 bg-white/80 px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">Addresses</p>
                   <p className="mt-1 text-sm font-medium leading-6 text-slate-800">
@@ -617,13 +570,13 @@ export default function Home() {
               ) : null}
               <div className="mt-5 grid gap-6 sm:grid-cols-2">
                 <div className="space-y-6">
-                  {hasContent(result.validationPlan.goal) ? (
+                  {hasDisplayContent(result.validationPlan.goal) ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Goal</p>
                       <p className="mt-2 text-sm leading-6 text-slate-600">{result.validationPlan.goal}</p>
                     </div>
                   ) : null}
-                  {hasContent(result.validationPlan.offerOrExperiment) ? (
+                  {hasDisplayContent(result.validationPlan.offerOrExperiment) ? (
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                         {result.validationPlan.testType === "7_day_payment_validation" ? "Paid offer" : "Experiment"}
@@ -631,7 +584,7 @@ export default function Home() {
                       <p className="mt-2 text-sm font-semibold leading-6 text-slate-800">{result.validationPlan.offerOrExperiment}</p>
                     </div>
                   ) : null}
-                  {hasContent(result.validationPlan.steps) ? (
+                  {hasDisplayContent(result.validationPlan.steps) ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Steps</p>
                       <ul className="mt-2 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
@@ -643,13 +596,13 @@ export default function Home() {
                   ) : null}
                 </div>
                 <div className="space-y-6">
-                  {hasContent(result.validationPlan.decisionRule) ? (
+                  {hasDisplayContent(result.validationPlan.decisionRule) ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Decision rule</p>
                       <p className="mt-2 text-sm leading-6 text-slate-600">{result.validationPlan.decisionRule}</p>
                     </div>
                   ) : null}
-                  {hasContent(result.validationPlan.constraints) ? (
+                  {hasDisplayContent(result.validationPlan.constraints) ? (
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Constraints</p>
                       <ul className="mt-2 list-disc space-y-2.5 pl-5 text-sm leading-6 text-slate-600 marker:text-slate-400">
@@ -660,13 +613,13 @@ export default function Home() {
                     </div>
                   ) : null}
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {hasContent(result.validationPlan.timeRequired) ? (
+                    {hasDisplayContent(result.validationPlan.timeRequired) ? (
                       <div className="rounded-xl bg-slate-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Time required</p>
                         <p className="mt-2 text-sm leading-6 text-slate-700">{result.validationPlan.timeRequired}</p>
                       </div>
                     ) : null}
-                    {hasContent(result.validationPlan.costEstimate) ? (
+                    {hasDisplayContent(result.validationPlan.costEstimate) ? (
                       <div className="rounded-xl bg-slate-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Cost estimate</p>
                         <p className="mt-2 text-sm leading-6 text-slate-700">{result.validationPlan.costEstimate}</p>

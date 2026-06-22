@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createIdeaAnalysisRunner,
-  IdeaAnalysisRunError,
   type ModelCallMetrics,
   type ModelCallResult,
 } from "@/lib/idea-analysis-run";
@@ -1214,7 +1213,7 @@ describe("Idea analysis run", () => {
         model: "qwen3:8b",
         deepThinking: false,
       })
-    ).rejects.toMatchObject<IdeaAnalysisRunError>({
+    ).rejects.toMatchObject({
       kind: "analysis_failed",
       message: expect.stringContaining("did not contain valid JSON"),
     });
