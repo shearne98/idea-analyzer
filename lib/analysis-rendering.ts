@@ -5,6 +5,15 @@ import {
   type ClarificationResponse,
 } from "@/lib/analysis-types";
 
+type AnalyzeResponseArtifact = {
+  id?: string;
+  savedAt?: string;
+  idea?: string;
+  response: AnalyzeResponse;
+};
+
+type MarkdownRenderableAnalysis = AnalyzeResponse | AnalyzeResponseArtifact;
+
 export function formatList(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((item) => String(item));
   if (typeof value === "string") {
@@ -99,14 +108,45 @@ function renderClarificationMarkdown(response: ClarificationResponse) {
     .join("\n\n");
 }
 
+function subsection(title: string, body: string) {
+  return body.trim() ? `### ${title}\n\n${body.trim()}` : "";
+}
+
+function renderScoreAssessment(
+  title: string,
+  assessment: AnalysisResponse["founderFit"]
+) {
+  return subsection(
+    title,
+    [
+      `Score: ${assessment.score ?? "Not available"}`,
+      `Label: ${assessment.label}`,
+      `Reason: ${assessment.reason}`,
+      assessment.evidence.length > 0 ? `Evidence:\n${markdownList(assessment.evidence)}` : "",
+      `Uncertainty: ${assessment.uncertainty}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+  );
+}
+
+function renderRunMetadata(response: AnalysisResponse) {
+  const metadata = response.runMetadata;
+  return markdownList([
+    `Analysis version: ${metadata.analysisVersion}`,
+    `Code version: ${metadata.codeVersion}`,
+    `Model: ${metadata.model}`,
+    `Thinking mode: ${metadata.deepThinking ? "on" : "off"}`,
+    `Seed: ${metadata.seed}`,
+    `Temperature: ${metadata.temperature}`,
+  ]);
+}
+
 function renderAnalysisMarkdown(response: AnalysisResponse) {
   const viewModel = buildAnalysisViewModel(response);
   const scores = viewModel.scoreCards
-    .map(
-      ({ title, assessment }) =>
-        `- ${title}: ${assessment.score ?? "Not available"} (${assessment.label}) - ${assessment.reason}`
-    )
-    .join("\n");
+    .map(({ title, assessment }) => renderScoreAssessment(title, assessment))
+    .join("\n\n");
   const concerns = viewModel.criticalConcerns
     .map(
       (concern) =>
@@ -116,24 +156,24 @@ function renderAnalysisMarkdown(response: AnalysisResponse) {
 
   return [
     "# Idea Analysis",
+    section("Verdict", response.oneSentenceVerdict),
+    section("Strongest Version", response.strongestVersion),
+    section("First Testable Version", response.firstTestableVersion),
     section(
-      "Recommended Direction",
+      "Idea Assessment",
       [
-        response.oneSentenceVerdict,
-        `Strategy: ${response.recommendedStrategyLabel}`,
-        response.strategyReason,
-        `Idea: ${response.ideaSummary}`,
+        scores,
+        subsection(
+          "Summary",
+          [
+            response.scoreSummary,
+            `Target customer: ${response.targetCustomer}`,
+            `Core pain / desire: ${response.corePainOrDesire}`,
+            `Confidence: ${response.confidenceLevel}`,
+          ].join("\n\n")
+        ),
       ].join("\n\n")
     ),
-    section(
-      "Product Scope",
-      [
-        `Strongest Version: ${response.strongestVersion}`,
-        `First Testable Version: ${response.firstTestableVersion}`,
-        `What Not To Build Yet:\n${markdownList(formatList(response.whatNotToBuildYet))}`,
-      ].join("\n\n")
-    ),
-    section("Idea Assessment", `${scores}\n\nSummary: ${response.scoreSummary}`),
     section("Critical Risks & Unknowns", concerns),
     section(
       "Validation Plan",
@@ -144,6 +184,9 @@ function renderAnalysisMarkdown(response: AnalysisResponse) {
         `Offer or experiment: ${response.validationPlan.offerOrExperiment}`,
         `Steps:\n${numberedMarkdownList(formatList(response.validationPlan.steps))}`,
         `Decision rule: ${response.validationPlan.decisionRule}`,
+        `Constraints:\n${markdownList(formatList(response.validationPlan.constraints))}`,
+        `Time required: ${response.validationPlan.timeRequired}`,
+        `Cost estimate: ${response.validationPlan.costEstimate}`,
       ].join("\n\n")
     ),
     section(
@@ -156,13 +199,45 @@ function renderAnalysisMarkdown(response: AnalysisResponse) {
         `Revise or stop if: ${response.afterValidation.reviseOrStopIf}`,
       ].join("\n\n")
     ),
+    section(
+      "Recommended Strategy",
+      [
+        `Strategy: ${response.recommendedStrategyLabel}`,
+        `Strategy key: ${response.recommendedStrategy}`,
+        response.strategyReason,
+        `Idea: ${response.ideaSummary}`,
+        `What not to build yet:\n${markdownList(formatList(response.whatNotToBuildYet))}`,
+      ].join("\n\n")
+    ),
+    section("Run Metadata", renderRunMetadata(response)),
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-export function renderAnalyzeResponseMarkdown(response: AnalyzeResponse) {
-  return response.status === "needs_clarification"
-    ? renderClarificationMarkdown(response)
-    : renderAnalysisMarkdown(response);
+function renderSourceIdea(input: AnalyzeResponseArtifact) {
+  return [
+    input.idea ? section("Source Idea", input.idea) : "",
+    input.savedAt ? section("Artifact", markdownList([`Saved at: ${input.savedAt}`])) : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function isAnalyzeResponseArtifact(
+  input: MarkdownRenderableAnalysis
+): input is AnalyzeResponseArtifact {
+  return "response" in input;
+}
+
+export function renderAnalyzeResponseMarkdown(input: MarkdownRenderableAnalysis): string {
+  if (isAnalyzeResponseArtifact(input)) {
+    const renderedResponse: string = renderAnalyzeResponseMarkdown(input.response);
+    const context = renderSourceIdea(input);
+    return context ? renderedResponse.replace("\n\n## Run Metadata", `\n\n${context}\n\n## Run Metadata`) : renderedResponse;
+  }
+
+  return input.status === "needs_clarification"
+    ? renderClarificationMarkdown(input)
+    : renderAnalysisMarkdown(input);
 }

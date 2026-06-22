@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { AnalyzeResponse } from "@/lib/analysis-types";
+import { renderAnalyzeResponseMarkdown } from "@/lib/analysis-rendering";
 import type { SavedAnalysisRun } from "@/lib/saved-analysis-runs";
 
 const STORAGE_KEY = "idea-analyzer:saved-runs:v1";
@@ -103,6 +104,17 @@ export function SavedAnalysisRuns({
     URL.revokeObjectURL(url);
   }
 
+  function downloadMarkdownRun(run: SavedAnalysisRun) {
+    const url = URL.createObjectURL(
+      new Blob([renderAnalyzeResponseMarkdown(run)], { type: "text/markdown" })
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `idea-analysis-${run.response.runMetadata.codeVersion}-${run.id.slice(0, 8)}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function removeRun(id: string) {
     setSavedMessage("Deleting...");
     try {
@@ -166,6 +178,13 @@ export function SavedAnalysisRuns({
                         className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-400"
                       >
                         Open
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadMarkdownRun(run)}
+                        className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-400"
+                      >
+                        Download Markdown
                       </button>
                       <button
                         type="button"

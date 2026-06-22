@@ -107,14 +107,51 @@ describe("analysis rendering boundaries", () => {
     const markdown = renderAnalyzeResponseMarkdown(analysisResponse());
 
     expect(markdown).toContain("# Idea Analysis");
-    expect(markdown).toContain("## Recommended Direction");
+    expect(markdown).toContain("## Verdict");
     expect(markdown).toContain("Validate payment before building software.");
+    expect(markdown).toContain("## Strongest Version");
+    expect(markdown).toContain("A done-for-you reporting service for landlords.");
+    expect(markdown).toContain("## First Testable Version");
+    expect(markdown).toContain("Sell and deliver one report manually.");
+    expect(markdown).toContain("## Idea Assessment");
+    expect(markdown).toContain("### Founder Fit");
+    expect(markdown).toContain("### Pain / Desire");
+    expect(markdown).toContain("### MVP Testability");
+    expect(markdown).toContain("### Commercial Potential");
     expect(markdown).toContain("## Critical Risks & Unknowns");
     expect(markdown).toContain("Primary concern: Will landlords pay for the report?");
     expect(markdown).toContain("## Validation Plan");
     expect(markdown).toContain("Addresses: Will landlords pay for the report?");
     expect(markdown).toContain("## After Validation");
+    expect(markdown).toContain("## Recommended Strategy");
+    expect(markdown).toContain("Test manually first");
     expect(markdown).not.toContain("[object Object]");
+  });
+
+  it("includes stable run metadata needed to compare analysis outputs", () => {
+    const markdown = renderAnalyzeResponseMarkdown(analysisResponse());
+
+    expect(markdown).toContain("## Run Metadata");
+    expect(markdown).toContain("- Analysis version: analysis-v1");
+    expect(markdown).toContain("- Code version: abc123");
+    expect(markdown).toContain("- Model: qwen3:8b");
+    expect(markdown).toContain("- Thinking mode: off");
+    expect(markdown).toContain("- Seed: 42");
+    expect(markdown).toContain("- Temperature: 0");
+  });
+
+  it("renders a saved JSON artifact to the same analysis.md content with artifact context", () => {
+    const markdown = renderAnalyzeResponseMarkdown({
+      id: "stable-run-1",
+      savedAt: "2026-06-22T12:00:00.000Z",
+      idea: "Landlord reports",
+      response: analysisResponse(),
+    });
+
+    expect(markdown).toContain("# Idea Analysis");
+    expect(markdown).toContain("## Source Idea");
+    expect(markdown).toContain("Landlord reports");
+    expect(markdown).toContain("## Run Metadata");
   });
 
   it("renders clarification responses as markdown without requiring website state", () => {
