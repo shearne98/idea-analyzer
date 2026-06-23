@@ -30,3 +30,9 @@ _Avoid_: Key Unknowns, Risks & Assumptions, Most Dangerous Assumption, User Ques
 ## Development-only evaluation
 
 Human-readable test cases, saved analysis JSON files, model/settings controls, run metadata, and performance metrics support development comparison work. They remain subordinate controls and are out of scope for the intended final customer experience.
+
+## Hearne OS file workflow boundary
+
+Hearne OS owns Business idea workspaces and the workspace artifacts `source.md`, `normalized.md`, `analysis.json`, `analysis.md`, and `workspace.md`. Hearne OS owns Notion import, workspace scaffolding, normalization interviews that produce `normalized.md`, and future ranking workflows.
+
+Idea Analyzer owns the reusable `normalized.md -> analysis.json -> analysis.md` transition: it reads an explicit normalized markdown path, runs the shared Idea analysis run core, writes the canonical JSON response, and renders markdown from that same structured output. The website remains a secondary surface over the same analyzer core and canonical response contract.
