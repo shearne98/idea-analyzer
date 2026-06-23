@@ -7,55 +7,65 @@ import {
   OLLAMA_MODELS,
 } from "@/lib/ollama-models";
 
-export async function POST(req: NextRequest) {
-  let body: { idea?: unknown; model?: unknown; deepThinking?: unknown } = {};
+type AnalyzePostDependencies = {
+  runIdeaAnalysis?: typeof runIdeaAnalysis;
+};
 
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-  }
+export function createAnalyzePostHandler(dependencies: AnalyzePostDependencies = {}) {
+  const analyze = dependencies.runIdeaAnalysis ?? runIdeaAnalysis;
 
-  const idea = typeof body.idea === "string" ? body.idea.trim() : "";
+  return async function POST(req: NextRequest | Request) {
+    let body: { idea?: unknown; model?: unknown; deepThinking?: unknown } = {};
 
-  if (!idea) {
-    return NextResponse.json({ error: "Business idea is required." }, { status: 400 });
-  }
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
 
-  if (!isOllamaModel(body.model)) {
-    return NextResponse.json(
-      { error: `Invalid model. Choose one of: ${OLLAMA_MODELS.join(", ")}.` },
-      { status: 400 }
-    );
-  }
+    const idea = typeof body.idea === "string" ? body.idea.trim() : "";
 
-  if (body.deepThinking !== undefined && typeof body.deepThinking !== "boolean") {
-    return NextResponse.json({ error: "deepThinking must be true or false." }, { status: 400 });
-  }
+    if (!idea) {
+      return NextResponse.json({ error: "Business idea is required." }, { status: 400 });
+    }
 
-  const deepThinking = body.deepThinking ?? false;
-  if (!isSupportedAnalysisConfiguration(body.model, deepThinking)) {
-    return NextResponse.json(
-      {
-        error: `This model and thinking-mode combination is not supported. Choose an analysis mode: ${ANALYSIS_MODES.map((mode) => mode.label).join(", ")}.`,
-      },
-      { status: 400 }
-    );
-  }
+    if (!isOllamaModel(body.model)) {
+      return NextResponse.json(
+        { error: `Invalid model. Choose one of: ${OLLAMA_MODELS.join(", ")}.` },
+        { status: 400 }
+      );
+    }
 
-  try {
-    return NextResponse.json(
-      await runIdeaAnalysis({ idea, model: body.model, deepThinking })
-    );
-  } catch (error) {
-    const runError =
-      error instanceof IdeaAnalysisRunError
-        ? error
-        : new IdeaAnalysisRunError("Analysis failed: Unexpected server error.", "analysis_failed");
+    if (body.deepThinking !== undefined && typeof body.deepThinking !== "boolean") {
+      return NextResponse.json({ error: "deepThinking must be true or false." }, { status: 400 });
+    }
 
-    return NextResponse.json(
-      { error: runError.message },
-      { status: runError.kind === "ollama_unavailable" ? 502 : 500 }
-    );
-  }
+    const deepThinking = body.deepThinking ?? false;
+    if (!isSupportedAnalysisConfiguration(body.model, deepThinking)) {
+      return NextResponse.json(
+        {
+          error: `This model and thinking-mode combination is not supported. Choose an analysis mode: ${ANALYSIS_MODES.map((mode) => mode.label).join(", ")}.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    try {
+      return NextResponse.json(
+        await analyze({ idea, model: body.model, deepThinking })
+      );
+    } catch (error) {
+      const runError =
+        error instanceof IdeaAnalysisRunError
+          ? error
+          : new IdeaAnalysisRunError("Analysis failed: Unexpected server error.", "analysis_failed");
+
+      return NextResponse.json(
+        { error: runError.message },
+        { status: runError.kind === "ollama_unavailable" ? 502 : 500 }
+      );
+    }
+  };
 }
+
+export const POST = createAnalyzePostHandler();
