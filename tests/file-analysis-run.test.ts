@@ -110,13 +110,53 @@ async function exists(filePath: string) {
   }
 }
 
+function normalizedMarkdown() {
+  return `idea_analyzer_schema_version: 1
+
+# One-Sentence Idea
+A reporting service for small landlords.
+
+# Target Customer
+Small landlords who manage maintenance and rent reporting themselves.
+
+# Problem Or Desire
+They want earlier visibility into property issues without spending hours assembling reports.
+
+# Proposed Solution
+A done-for-you monthly report assembled from their existing notes and records.
+
+# Value Outcome
+Landlords spot maintenance and rent issues earlier while spending less admin time.
+
+# Payer
+Small landlords paying directly for a monthly reporting service.
+
+# Current Alternative
+Manual spreadsheets, ad hoc notes, or waiting until a tenant reports a problem.
+
+# First Testable Version
+Sell and deliver one report manually for a landlord using their existing records.
+
+# Evidence
+The first test can validate whether landlords pay before software is built.
+
+# Assumptions
+- Landlords will share enough records for useful reporting.
+- The report saves enough time or risk to justify payment.
+
+# Open Questions
+- Which records are easiest for landlords to share?
+- What report cadence would they pay for?
+`;
+}
+
 describe("file-based Idea analysis run", () => {
   it("reads normalized markdown and writes canonical JSON plus rendered markdown", async () => {
     await withTempDir(async (directory) => {
       const inputPath = path.join(directory, "normalized.md");
       const analysisJsonPath = path.join(directory, "analysis.json");
       const analysisMarkdownPath = path.join(directory, "analysis.md");
-      await writeFile(inputPath, "# Idea\n\nA reporting service for small landlords.", "utf8");
+      await writeFile(inputPath, normalizedMarkdown(), "utf8");
 
       await runFileIdeaAnalysis(
         { inputPath, analysisJsonPath, analysisMarkdownPath },
@@ -142,7 +182,7 @@ describe("file-based Idea analysis run", () => {
   it("allows explicit model and thinking-mode configuration", async () => {
     await withTempDir(async (directory) => {
       const inputPath = path.join(directory, "normalized.md");
-      await writeFile(inputPath, "Specific idea", "utf8");
+      await writeFile(inputPath, normalizedMarkdown(), "utf8");
 
       await runFileIdeaAnalysis(
         {
@@ -181,7 +221,7 @@ describe("file-based Idea analysis run", () => {
       const inputPath = path.join(directory, "normalized.md");
       const analysisJsonPath = path.join(directory, "analysis.json");
       const analysisMarkdownPath = path.join(directory, "analysis.md");
-      await writeFile(inputPath, "Too vague", "utf8");
+      await writeFile(inputPath, normalizedMarkdown(), "utf8");
 
       await expect(
         runFileIdeaAnalysis(
@@ -211,7 +251,7 @@ describe("file-based Idea analysis run", () => {
       const analysisJsonPath = path.join(directory, "analysis.json");
       const blockedParentPath = path.join(directory, "blocked-parent");
       const analysisMarkdownPath = path.join(blockedParentPath, "analysis.md");
-      await writeFile(inputPath, "Specific idea", "utf8");
+      await writeFile(inputPath, normalizedMarkdown(), "utf8");
       await writeFile(blockedParentPath, "not a directory", "utf8");
 
       await expect(
@@ -220,6 +260,27 @@ describe("file-based Idea analysis run", () => {
           { runIdeaAnalysis: async () => analysisResponse() }
         )
       ).rejects.toThrow();
+
+      expect(await exists(analysisJsonPath)).toBe(false);
+      expect(await exists(analysisMarkdownPath)).toBe(false);
+    });
+  });
+
+  it("validates normalized markdown before running analysis", async () => {
+    await withTempDir(async (directory) => {
+      const inputPath = path.join(directory, "normalized.md");
+      const analysisJsonPath = path.join(directory, "analysis.json");
+      const analysisMarkdownPath = path.join(directory, "analysis.md");
+      await writeFile(inputPath, "# One-Sentence Idea\n\nA reporting service for small landlords.", "utf8");
+
+      await expect(
+        runFileIdeaAnalysis(
+          { inputPath, analysisJsonPath, analysisMarkdownPath },
+          { runIdeaAnalysis: async () => {
+            throw new Error("analysis should not run for invalid normalized markdown");
+          } }
+        )
+      ).rejects.toThrow(/missing normalized idea schema version/i);
 
       expect(await exists(analysisJsonPath)).toBe(false);
       expect(await exists(analysisMarkdownPath)).toBe(false);

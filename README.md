@@ -19,6 +19,34 @@ Hearne OS owns the surrounding workflow responsibilities: Notion import, Busines
 
 The website remains a secondary surface over the same analyzer core and canonical response contract. It should continue to support paste-and-analyze, clarification intake, completed Idea Assessment display, Validation Plan, Critical Risks & Unknowns, After Validation, Recommended Strategy, and development output tools.
 
+## Normalized idea v1 contract
+
+Idea Analyzer owns the schema for analysis-ready normalized idea markdown. Hearne OS owns the `normalized.md` file location, workspace layout, Notion import, and approval flow around file edits. Other callers can pass normalized markdown directly without matching the Hearne OS folder structure.
+
+A v1 normalized idea must declare:
+
+```markdown
+idea_analyzer_schema_version: 1
+```
+
+Required sections:
+
+1. One-Sentence Idea
+2. Target Customer
+3. Problem Or Desire
+4. Proposed Solution
+5. Value Outcome
+6. Payer
+7. Current Alternative
+8. First Testable Version
+9. Evidence
+10. Assumptions
+11. Open Questions
+
+All required sections must be present and non-empty. Idea Analyzer parses these sections into a structured representation and validates the schema version before file-based analysis runs. Unknown extra sections are preserved as non-contract metadata warnings rather than v1 fields.
+
+`Founder Fit Notes` is deprecated in normalized markdown because founder context now comes from an explicit Founder Profile input during final analysis. Pass Founder Profile markdown/path explicitly to the final analysis flow instead of embedding founder context in `normalized.md`.
+
 ## File-based Idea analysis runs
 
 Use the file command when Hearne OS has already produced a normalized Business idea markdown file:
