@@ -3,6 +3,7 @@ import path from "path";
 import type { AnalysisResponse, AnalyzeResponse } from "@/lib/analysis-types";
 import { renderAnalyzeResponseMarkdown } from "@/lib/analysis-rendering";
 import { runIdeaAnalysis } from "@/lib/idea-analysis-run";
+import { validateNormalizedIdeaMarkdown } from "@/lib/normalized-idea";
 import {
   DEFAULT_ANALYSIS_MODE_ID,
   findAnalysisMode,
@@ -37,6 +38,14 @@ async function readNormalizedMarkdown(inputPath: string) {
         `Normalized markdown input is empty: ${inputPath}`
       );
     }
+
+    const validation = validateNormalizedIdeaMarkdown(content);
+    if (!validation.valid) {
+      throw new FileIdeaAnalysisRunError(
+        validation.errors.map((issue) => issue.message).join("; ")
+      );
+    }
+
     return content;
   } catch (error) {
     if (error instanceof FileIdeaAnalysisRunError) throw error;

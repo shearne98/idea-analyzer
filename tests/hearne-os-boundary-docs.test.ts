@@ -29,6 +29,17 @@ describe("Hearne OS file workflow boundary docs", () => {
     expect(readme).toMatch(/same analyzer core/i);
   });
 
+  it("documents the normalized idea v1 schema owned by Idea Analyzer", async () => {
+    const readme = await readReadme();
+
+    expect(readme).toMatch(/idea_analyzer_schema_version: 1/i);
+    expect(readme).toMatch(/One-Sentence Idea[\s\S]*Target Customer[\s\S]*Open Questions/i);
+    expect(readme).toMatch(/Founder Fit Notes[\s\S]*deprecated/i);
+    expect(readme).toMatch(/Founder Profile[\s\S]*explicitly/i);
+    expect(readme).toMatch(/Hearne OS owns the `normalized\.md` file location/i);
+    expect(readme).toMatch(/Idea Analyzer owns the schema/i);
+  });
+
   it("uses project glossary terms for the documented boundary", async () => {
     const readme = await readReadme();
 
