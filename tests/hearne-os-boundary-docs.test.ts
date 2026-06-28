@@ -51,6 +51,16 @@ describe("Hearne OS file workflow boundary docs", () => {
     expect(readme).toMatch(/npm run readiness:check/i);
   });
 
+  it("documents external execution packets and backend-independent validation", async () => {
+    const readme = await readReadme();
+
+    expect(readme).toMatch(/External execution packet contract/i);
+    expect(readme).toMatch(/Hermes\/Codex[\s\S]*without Idea Analyzer importing or depending on that backend/i);
+    expect(readme).toMatch(/readiness[\s\S]*intake[\s\S]*refresh-normalized[\s\S]*analysis/i);
+    expect(readme).toMatch(/packetId[\s\S]*runId[\s\S]*backend[\s\S]*protocol/i);
+    expect(readme).toMatch(/validateExternalExecutionResponse[\s\S]*malformed or incomplete responses/i);
+  });
+
   it("uses project glossary terms for the documented boundary", async () => {
     const readme = await readReadme();
 
