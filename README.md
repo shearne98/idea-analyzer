@@ -113,6 +113,33 @@ The returned contract includes:
 
 Callers are responsible for showing proposed updates to the user and applying approved changes to files. The existing website clarification path uses the shared intake clarification helper so paste-and-analyze still asks for more context before analysis when the raw idea is too vague.
 
+## Refresh-normalized contract
+
+Refresh-normalized handles the workflow where source material is updated later, such as when Hearne OS re-imports a richer `source.md` from Notion, while an existing `normalized.md` is already mature. It compares updated source material against the current normalized idea and returns targeted reviewable changes rather than restarting intake or mutating files directly.
+
+The callable API is:
+
+```ts
+import { createRefreshNormalized } from "@/lib/idea-refresh-normalized";
+
+const refresh = createRefreshNormalized({
+  existingNormalizedIdea: normalizedMarkdownOrParsedIdea,
+  updatedSourceMaterial: updatedSourceMarkdown,
+});
+```
+
+The returned contract includes:
+
+- `contract: "refresh-normalized"`
+- `schemaVersion: 1`
+- `readiness` — readiness for the existing normalized idea
+- `proposedUpdates` — targeted field updates from new source details with `section`, `field`, `currentValue`, `proposedValue`, `source`, and `rationale`
+- `warnings` — conflicts where source material appears to contradict mature normalized content
+- `questions` — confirmation questions for conflicts instead of silent overwrites
+- `normalizedIdeaAfterProposedUpdates` and `readinessAfterProposedUpdates` when proposed updates exist
+
+Callers should show proposed updates, warnings, and questions to the user for approval. No-op source refreshes return no updates. Mature normalized content is preserved unless the updated source contains a clear new detail or an explicit review question is needed.
+
 ## File-based Idea analysis runs
 
 Use the file command when Hearne OS has already produced a normalized Business idea markdown file:
