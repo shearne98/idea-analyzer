@@ -40,6 +40,17 @@ describe("Hearne OS file workflow boundary docs", () => {
     expect(readme).toMatch(/Idea Analyzer owns the schema/i);
   });
 
+  it("documents the readiness contract over normalized idea content only", async () => {
+    const readme = await readReadme();
+
+    expect(readme).toMatch(/Readiness is a first-class Idea Analyzer contract/i);
+    expect(readme).toMatch(/evaluates only normalized idea markdown or a parsed normalized idea object/i);
+    expect(readme).toMatch(/does not read `source\.md`, Founder Profile/i);
+    expect(readme).toMatch(/readyForFinalAnalysis[\s\S]*zero blockers/i);
+    expect(readme).toMatch(/blockers[\s\S]*warnings[\s\S]*suggestions/i);
+    expect(readme).toMatch(/npm run readiness:check/i);
+  });
+
   it("uses project glossary terms for the documented boundary", async () => {
     const readme = await readReadme();
 

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "analyze:file": "tsx scripts/analyze-file.ts"
+    "analyze:file": "tsx scripts/analyze-file.ts",
+    "readiness:check": "tsx scripts/readiness-check.ts"
   },
   "dependencies": {
     "next": "16.2.9",
