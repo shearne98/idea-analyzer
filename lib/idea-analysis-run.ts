@@ -12,6 +12,7 @@ import {
   type ScoreArea,
 } from "@/lib/analysis-types";
 import type { AnalysisResponse, AnalyzeResponse } from "@/lib/analysis-types";
+import { buildIntakeClarification } from "@/lib/idea-intake";
 import type { OllamaModel } from "@/lib/ollama-models";
 
 const OLLAMA_URL = "http://localhost:11434/api/chat";
@@ -351,38 +352,23 @@ function normalizeClarification(
     .filter((field) => missingFieldSet.has(field))
     .slice(0, 5);
   const clarifyingQuestions = normalizeArrayField(parsed.clarifyingQuestions).slice(0, 6);
-  const fallbackQuestions = [
-    "Who specifically experiences this problem or desire?",
-    `What would "${idea}" help them do or improve?`,
-    "What rough solution are you imagining?",
-    "What is the smallest manual test you could run first?",
-  ];
-  const focusedQuestions = [...new Set([...clarifyingQuestions, ...fallbackQuestions])].slice(
-    0,
-    Math.max(3, clarifyingQuestions.length)
-  );
   const possibleDirections = normalizeArrayField(parsed.possibleDirections).slice(0, 4);
-
-  return {
-    status: "needs_clarification",
-    reason:
-      String(parsed.reason ?? "").trim() ||
-      "This idea is too vague to analyze without inventing important business assumptions.",
+  const sharedClarification = buildIntakeClarification({
+    idea,
+    reason: String(parsed.reason ?? "").trim(),
     missingFields:
       isExtremelyVague
         ? ["targetCustomer", "problemOrDesire", "proposedSolution", "valueOutcome", "payer"]
         : missingFields.length > 0
         ? missingFields
         : ["targetCustomer", "problemOrDesire", "proposedSolution", "valueOutcome", "payer"],
-    clarifyingQuestions: focusedQuestions,
-    possibleDirections:
-      possibleDirections.length > 0
-        ? possibleDirections
-        : [
-            `A consumer-facing version of ${idea}`,
-            `A service-based version of ${idea}`,
-            `A business or organization-focused version of ${idea}`,
-          ],
+    modelQuestions: clarifyingQuestions,
+    possibleDirections,
+  });
+
+  return {
+    status: "needs_clarification",
+    ...sharedClarification,
   };
 }
 

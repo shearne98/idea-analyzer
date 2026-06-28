@@ -79,6 +79,40 @@ npm run readiness:check -- \
   --output /path/to/readiness.json
 ```
 
+## Intake contract
+
+Intake turns readiness gaps into guided questions and proposed normalized-field updates. It treats `normalized.md` as the primary source of truth, may use `source.md` text as supporting context, and never writes Hearne OS files directly.
+
+The callable API is:
+
+```ts
+import { createIdeaIntake, renderNormalizedIdeaWithUpdates } from "@/lib/idea-intake";
+
+const intake = createIdeaIntake({
+  normalizedIdea: normalizedMarkdownOrParsedIdea,
+  sourceMaterial: optionalSourceMarkdown,
+  answers: {
+    targetCustomer: "Specific answer approved by the user",
+  },
+});
+
+const draftMarkdown = renderNormalizedIdeaWithUpdates(
+  normalizedMarkdown,
+  intake.proposedUpdates
+);
+```
+
+The returned contract includes:
+
+- `contract: "idea-intake"`
+- `schemaVersion: 1`
+- `readiness` — the underlying readiness result
+- `questions` — guided questions for missing, empty, weak, vague, or warning-level normalized fields
+- `proposedUpdates` — targeted field updates with `section`, `field`, `currentValue`, `proposedValue`, `source`, and `rationale`
+- `normalizedIdeaAfterProposedUpdates` — an in-memory parsed preview when updates exist
+
+Callers are responsible for showing proposed updates to the user and applying approved changes to files. The existing website clarification path uses the shared intake clarification helper so paste-and-analyze still asks for more context before analysis when the raw idea is too vague.
+
 ## File-based Idea analysis runs
 
 Use the file command when Hearne OS has already produced a normalized Business idea markdown file:
