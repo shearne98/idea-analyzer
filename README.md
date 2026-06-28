@@ -43,9 +43,41 @@ Required sections:
 10. Assumptions
 11. Open Questions
 
-All required sections must be present and non-empty. Idea Analyzer parses these sections into a structured representation and validates the schema version before file-based analysis runs. Unknown extra sections are preserved as non-contract metadata warnings rather than v1 fields.
+All required sections must be present and non-empty. Idea Analyzer parses these sections into a structured representation and validates the schema version before file-based analysis and readiness runs. Unknown extra sections are preserved as non-contract metadata warnings rather than v1 fields.
 
 `Founder Fit Notes` is deprecated in normalized markdown because founder context now comes from an explicit Founder Profile input during final analysis. Pass Founder Profile markdown/path explicitly to the final analysis flow instead of embedding founder context in `normalized.md`.
+
+## Readiness checks
+
+Readiness is a first-class Idea Analyzer contract for deciding whether normalized idea content is specific and complete enough for final analysis. It evaluates only normalized idea markdown or a parsed normalized idea object; it does not read `source.md`, Founder Profile, current working directory, or Hearne OS workspace paths.
+
+The callable API is:
+
+```ts
+import { checkIdeaReadiness } from "@/lib/idea-readiness";
+
+const readiness = checkIdeaReadiness(normalizedMarkdownOrParsedIdea);
+```
+
+The returned `readiness.json`-compatible object includes:
+
+- `contract: "idea-readiness"`
+- `schemaVersion: 1`
+- `normalizedIdeaSchemaVersion: 1`
+- `readyForFinalAnalysis` — true when there are zero blockers
+- `blockers` — issues that prevent final analysis
+- `warnings` — limitations that allow analysis but lower confidence
+- `suggestions` — optional next improvements
+
+Missing or empty required sections become blockers. Vague, generic, or explicitly unresolved core fields such as `Target Customer: everyone`, `Problem Or Desire: they need productivity`, `Proposed Solution: an app`, `Value Outcome: saves time`, or `Payer: unknown` also become blockers. Explicit no-evidence cases are warnings rather than blockers so final analysis can proceed with lower confidence when the rest of the normalized idea is specific.
+
+Use the CLI when Hearne OS or another caller wants a `readiness.json` artifact:
+
+```bash
+npm run readiness:check -- \
+  --input /path/to/normalized.md \
+  --output /path/to/readiness.json
+```
 
 ## File-based Idea analysis runs
 
