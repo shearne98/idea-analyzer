@@ -5,8 +5,11 @@ The Idea Analyzer helps a founder turn an early business idea into a clarificati
 ## Language
 
 **Idea analysis run**:
-One complete evaluation of an idea, including automatic founder-profile context, clarification intake, an Idea Assessment, strategy guidance, and performance measurement.
+One complete evaluation of an idea, including supplied Founder Profile context, clarification intake, an Idea Assessment, strategy guidance, and performance measurement.
 _Avoid_: Analysis request, analyzer pipeline
+
+**Founder Profile**:
+A founder-owned markdown artifact containing the experience, access, capabilities, and motivations relevant to Founder Fit. Hearne OS owns the canonical Founder Profile and supplies it to an Idea analysis run; Idea Analyzer consumes its content without owning or locating the artifact.
 
 **Idea Assessment**:
 A concise assessment of an idea across Founder Fit, Pain / Desire, MVP Testability, and Commercial Potential. Each area explains its score and its biggest uncertainty.
@@ -33,9 +36,9 @@ Human-readable test cases, saved analysis JSON files, model/settings controls, r
 
 ## Hearne OS file workflow boundary
 
-Hearne OS owns Business idea workspaces and the workspace artifacts `source.md`, `normalized.md`, `analysis.json`, `analysis.md`, and `workspace.md`. Hearne OS owns Notion import, workspace scaffolding, normalization interviews that produce `normalized.md`, and future ranking workflows.
+Hearne OS owns Business idea workspaces, the canonical Founder Profile, and the workspace artifacts `source.md`, `normalized.md`, `analysis.json`, `analysis.md`, and `workspace.md`. Hearne OS owns Notion import, workspace scaffolding, normalization interviews that produce `normalized.md`, and future ranking workflows.
 
-Idea Analyzer owns the reusable `normalized.md -> analysis.json -> analysis.md` transition: it reads an explicit normalized markdown path, runs the shared Idea analysis run core, writes the canonical JSON response, and renders markdown from that same structured output. The website remains a secondary surface over the same analyzer core and canonical response contract.
+Idea Analyzer owns the reusable `normalized.md + Founder Profile -> analysis.json -> analysis.md` transition: it reads explicit normalized-idea and Founder Profile markdown paths, runs the shared Idea analysis run core, writes the canonical JSON response, and renders markdown from that same structured output. The website remains a secondary surface over the same analyzer core and canonical response contract.
 
 Idea Analyzer also owns the v1 normalized idea schema: `idea_analyzer_schema_version: 1` plus the required sections One-Sentence Idea, Target Customer, Problem Or Desire, Proposed Solution, Value Outcome, Payer, Current Alternative, First Testable Version, Evidence, Assumptions, and Open Questions. `Founder Fit Notes` is deprecated because Founder Profile input is supplied explicitly during final analysis; Hearne OS owns where `normalized.md` lives, not the schema.
 

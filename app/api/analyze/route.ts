@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { IdeaAnalysisRunError, runIdeaAnalysis } from "@/lib/idea-analysis-run";
 import {
+  FounderProfileError,
+  readFounderProfileMarkdown,
+} from "@/lib/founder-profile";
+import {
   ANALYSIS_MODES,
   isOllamaModel,
   isSupportedAnalysisConfiguration,
@@ -9,10 +13,15 @@ import {
 
 type AnalyzePostDependencies = {
   runIdeaAnalysis?: typeof runIdeaAnalysis;
+  founderProfilePath?: string;
+  readFounderProfile?: typeof readFounderProfileMarkdown;
 };
 
 export function createAnalyzePostHandler(dependencies: AnalyzePostDependencies = {}) {
   const analyze = dependencies.runIdeaAnalysis ?? runIdeaAnalysis;
+  const readFounderProfile = dependencies.readFounderProfile ?? readFounderProfileMarkdown;
+  const founderProfilePath =
+    dependencies.founderProfilePath ?? process.env.FOUNDER_PROFILE_PATH;
 
   return async function POST(req: NextRequest | Request) {
     let body: { idea?: unknown; model?: unknown; deepThinking?: unknown } = {};
@@ -51,10 +60,14 @@ export function createAnalyzePostHandler(dependencies: AnalyzePostDependencies =
     }
 
     try {
+      const founderProfile = await readFounderProfile(founderProfilePath);
       return NextResponse.json(
-        await analyze({ idea, model: body.model, deepThinking })
+        await analyze({ idea, founderProfile, model: body.model, deepThinking })
       );
     } catch (error) {
+      if (error instanceof FounderProfileError) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
       const runError =
         error instanceof IdeaAnalysisRunError
           ? error

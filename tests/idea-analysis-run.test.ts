@@ -5,10 +5,12 @@ import {
   type ModelCallResult,
 } from "@/lib/idea-analysis-run";
 
-function createRunnerWithResponses(responses: ModelCallResult[], founderProfile = "") {
+function createRunnerWithResponses(
+  responses: ModelCallResult[],
+  founderProfile = "# Founder Profile\n\nGeneral founder context."
+) {
   const calls: { messages: { role: string; content: string }[] }[] = [];
-  const runIdeaAnalysis = createIdeaAnalysisRunner({
-    readFounderProfile: async () => founderProfile,
+  const runCore = createIdeaAnalysisRunner({
     callModel: async (_model, messages) => {
       calls.push({ messages });
       const response = responses.shift();
@@ -16,6 +18,11 @@ function createRunnerWithResponses(responses: ModelCallResult[], founderProfile 
       return response;
     },
   });
+  const runIdeaAnalysis = (input: {
+    idea: string;
+    model: "qwen3:8b";
+    deepThinking: boolean;
+  }) => runCore({ ...input, founderProfile });
 
   return { runIdeaAnalysis, calls };
 }
@@ -425,31 +432,16 @@ describe("Idea analysis run", () => {
     expect(result).not.toHaveProperty("keyUnknowns");
   });
 
-  it("marks Founder Fit unavailable when no founder profile exists", async () => {
-    const { runIdeaAnalysis } = createRunnerWithResponses([
-      readyIntake(),
-      completeAnalysis({
-        founderFit: {
-          score: 9,
-          reason: "The founder appears highly capable.",
-          evidence: ["The founder has deep industry experience."],
-          uncertainty: "None.",
-        },
-      }),
-    ]);
+  it("fails before analysis when Founder Profile content is empty", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses([], "");
 
-    const result = await runIdeaAnalysis({
-      idea: "A detailed idea with a target customer, problem, solution, and manual test.",
-      model: "qwen3:8b",
-      deepThinking: false,
-    });
-
-    expect(result.status).toBe("analysis");
-    if (result.status !== "analysis") throw new Error("Expected analysis response.");
-    expect(result.founderFit.score).toBeNull();
-    expect(result.founderFit.label).toBe("Not available");
-    expect(result.founderFit.evidence).toEqual([]);
-    expect(result.founderFit.uncertainty).toMatch(/founder profile/i);
+    await expect(
+      runIdeaAnalysis({
+        idea: "A detailed idea with a target customer, problem, solution, and manual test.",
+        model: "qwen3:8b",
+        deepThinking: false,
+      })
+    ).rejects.toThrow(/Founder Profile content is required/i);
   });
 
   it("normalizes malformed score objects into complete conservative assessments", async () => {
@@ -533,7 +525,17 @@ describe("Idea analysis run", () => {
   });
 
   it("uses founder-profile context without exposing its source text", async () => {
-    const privateProfile = "PRIVATE_FOUNDER_PROFILE_SECRET: organizes a specialist weekly meetup.";
+    const privateDetail = "Organizes a specialist weekly meetup for regulated-industry operators.";
+    const privateProfile = `# Founder Profile
+
+## Credentials
+
+- ${privateDetail}
+- CPA at SecretCorp
+
+## Motivation
+
+- Wants to solve recurring coordination problems.`;
     const performanceLog = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const { runIdeaAnalysis, calls } = createRunnerWithResponses(
       [
@@ -541,8 +543,8 @@ describe("Idea analysis run", () => {
         completeAnalysis({
           founderFit: {
             score: 7,
-            reason: privateProfile,
-            evidence: [privateProfile],
+            reason: `${privateDetail} Previously worked at secretcorp with CPA credentials.`,
+            evidence: ["CPA", "Credentials"],
             uncertainty: "Customer access outside the meetup is unknown.",
           },
         }),
@@ -558,6 +560,8 @@ describe("Idea analysis run", () => {
 
     expect(calls[1].messages.at(-1)?.content).toContain(privateProfile);
     expect(JSON.stringify(result)).not.toContain(privateProfile);
+    expect(JSON.stringify(result)).not.toContain(privateDetail);
+    expect(JSON.stringify(result)).not.toMatch(/secretcorp|credentials|CPA/i);
     expect(performanceLog.mock.calls.flat().join(" ")).not.toContain(privateProfile);
     performanceLog.mockRestore();
   });
@@ -1203,19 +1207,27 @@ describe("Idea analysis run", () => {
   });
 
   it("reports malformed model JSON as a clear analysis failure", async () => {
-    const { runIdeaAnalysis } = createRunnerWithResponses([
-      { assistantText: "This is not JSON.", metrics: {} },
-    ]);
+    const privateDetail = "SecretCorp founder credential";
+    const { runIdeaAnalysis } = createRunnerWithResponses(
+      [
+        readyIntake(),
+        { assistantText: `${privateDetail}: This is not JSON.`, metrics: {} },
+      ],
+      privateDetail
+    );
 
-    await expect(
-      runIdeaAnalysis({
-        idea: "poop recycling",
-        model: "qwen3:8b",
-        deepThinking: false,
-      })
-    ).rejects.toMatchObject({
+    const failure = runIdeaAnalysis({
+      idea: "A detailed recycling service for restaurant operators.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    await expect(failure).rejects.toMatchObject({
       kind: "analysis_failed",
       message: expect.stringContaining("did not contain valid JSON"),
+    });
+    await expect(failure).rejects.not.toMatchObject({
+      message: expect.stringContaining(privateDetail),
     });
   });
 

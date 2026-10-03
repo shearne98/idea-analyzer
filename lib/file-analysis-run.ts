@@ -2,6 +2,10 @@ import { promises as fs } from "fs";
 import path from "path";
 import type { AnalysisResponse, AnalyzeResponse } from "@/lib/analysis-types";
 import { renderAnalyzeResponseMarkdown } from "@/lib/analysis-rendering";
+import {
+  FounderProfileError,
+  readFounderProfileMarkdown as readFounderProfile,
+} from "@/lib/founder-profile";
 import { runIdeaAnalysis } from "@/lib/idea-analysis-run";
 import { validateNormalizedIdeaMarkdown } from "@/lib/normalized-idea";
 import {
@@ -13,6 +17,7 @@ import {
 
 export type FileIdeaAnalysisInput = {
   inputPath: string;
+  founderProfilePath: string;
   analysisJsonPath: string;
   analysisMarkdownPath: string;
   model?: OllamaModel;
@@ -52,6 +57,24 @@ async function readNormalizedMarkdown(inputPath: string) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
       throw new FileIdeaAnalysisRunError(
         `Normalized markdown input not found: ${inputPath}`
+      );
+    }
+    throw error;
+  }
+}
+
+async function readFounderProfileMarkdown(founderProfilePath: string) {
+  try {
+    return await readFounderProfile(founderProfilePath);
+  } catch (error) {
+    if (error instanceof FounderProfileError && error.kind === "not_found") {
+      throw new FileIdeaAnalysisRunError(
+        `Founder Profile markdown not found: ${founderProfilePath}`
+      );
+    }
+    if (error instanceof FounderProfileError && error.kind === "empty") {
+      throw new FileIdeaAnalysisRunError(
+        `Founder Profile markdown is empty: ${founderProfilePath}`
       );
     }
     throw error;
@@ -118,9 +141,10 @@ export async function runFileIdeaAnalysis(
   dependencies: FileIdeaAnalysisDependencies = {}
 ) {
   const idea = await readNormalizedMarkdown(input.inputPath);
+  const founderProfile = await readFounderProfileMarkdown(input.founderProfilePath);
   const { model, deepThinking } = resolveAnalysisConfiguration(input);
   const analyze = dependencies.runIdeaAnalysis ?? runIdeaAnalysis;
-  const response = await analyze({ idea, model, deepThinking });
+  const response = await analyze({ idea, founderProfile, model, deepThinking });
 
   assertCompletedAnalysis(response);
 

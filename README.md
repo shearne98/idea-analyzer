@@ -11,9 +11,9 @@ Idea Analyzer provides a reusable business idea analysis engine, a website surfa
 
 ## Hearne OS file workflow boundary
 
-Hearne OS owns Business idea workspaces. The workspace artifacts `source.md`, `normalized.md`, `analysis.json`, and `analysis.md` live in Hearne OS, not inside Idea Analyzer. Idea Analyzer should not create, scaffold, or take ownership of those workspaces.
+Hearne OS owns Business idea workspaces and the canonical Founder Profile. The workspace artifacts `source.md`, `normalized.md`, `analysis.json`, and `analysis.md` live in Hearne OS, not inside Idea Analyzer. Idea Analyzer should not create, scaffold, or take ownership of those workspaces or the Founder Profile.
 
-Idea Analyzer owns `normalized.md -> analysis.json -> analysis.md`: given an explicit Hearne OS `normalized.md` input path, it runs an Idea analysis run through the shared analyzer core, writes canonical `analysis.json`, and renders `analysis.md` from that same structured output.
+Idea Analyzer owns `normalized.md + Founder Profile -> analysis.json -> analysis.md`: given explicit Hearne OS normalized-idea and Founder Profile paths, it reads both markdown documents fresh, runs an Idea analysis run through the shared analyzer core, writes canonical `analysis.json`, and renders `analysis.md` from that same structured output.
 
 Hearne OS owns the surrounding workflow responsibilities: Notion import, Business idea workspace scaffolding, normalization interviews that produce `normalized.md`, `workspace.md`, and future ranking workflows. Do not add Notion import behavior or Hearne OS workspace ownership to this repo.
 
@@ -147,6 +147,7 @@ Use the file command when Hearne OS has already produced a normalized Business i
 ```bash
 npm run analyze:file -- \
   --input /path/to/normalized.md \
+  --founder-profile /path/to/founder-profile.md \
   --analysis-json /path/to/analysis.json \
   --analysis-md /path/to/analysis.md
 ```
@@ -157,7 +158,7 @@ Optional configuration:
 - `--model <ollama-model>` overrides the model when supported.
 - `--deep-thinking true|false` overrides thinking mode.
 
-The command fails clearly for missing input, unsupported configuration, local model/analysis failures, and clarification responses that are not completed analyses. It writes final artifacts only after both outputs are prepared, so failed runs do not leave misleading new analysis files.
+The command fails clearly for missing or empty normalized input, missing or empty Founder Profile content, unsupported configuration, local model/analysis failures, and clarification responses that are not completed analyses. It writes final artifacts only after both outputs are prepared, so failed runs do not leave misleading new analysis files.
 
 ## Development evaluation tools
 
@@ -172,6 +173,14 @@ The collapsed **Development controls** and **Development output tools** are for 
 - Existing browser-only saves are migrated to project-local files when the saved-runs panel first loads.
 
 ## Website development
+
+Set the website adapter to the canonical Hearne OS Founder Profile in `.env.local`:
+
+```env
+FOUNDER_PROFILE_PATH=C:\path\to\hearne-os\workspaces\business-ideas\founder-profile.md
+```
+
+The website reads the profile fresh for every Idea analysis run. Missing, unreadable, or empty profile content produces a configuration error instead of a degraded Founder Fit assessment.
 
 First, run the development server:
 
