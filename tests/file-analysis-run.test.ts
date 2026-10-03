@@ -154,14 +154,21 @@ describe("file-based Idea analysis run", () => {
   it("reads normalized markdown and writes canonical JSON plus rendered markdown", async () => {
     await withTempDir(async (directory) => {
       const inputPath = path.join(directory, "normalized.md");
+      const founderProfilePath = path.join(directory, "founder-profile.md");
       const analysisJsonPath = path.join(directory, "analysis.json");
       const analysisMarkdownPath = path.join(directory, "analysis.md");
       await writeFile(inputPath, normalizedMarkdown(), "utf8");
+      await writeFile(
+        founderProfilePath,
+        "# Founder Profile\n\nHas direct access to small landlords.",
+        "utf8"
+      );
 
       await runFileIdeaAnalysis(
-        { inputPath, analysisJsonPath, analysisMarkdownPath },
-        { runIdeaAnalysis: async ({ idea, model, deepThinking }) => {
+        { inputPath, founderProfilePath, analysisJsonPath, analysisMarkdownPath },
+        { runIdeaAnalysis: async ({ idea, founderProfile, model, deepThinking }) => {
           expect(idea).toContain("A reporting service for small landlords.");
+          expect(founderProfile).toContain("Has direct access to small landlords.");
           expect(model).toBe("qwen3:8b");
           expect(deepThinking).toBe(false);
           return analysisResponse();
@@ -182,11 +189,14 @@ describe("file-based Idea analysis run", () => {
   it("allows explicit model and thinking-mode configuration", async () => {
     await withTempDir(async (directory) => {
       const inputPath = path.join(directory, "normalized.md");
+      const founderProfilePath = path.join(directory, "founder-profile.md");
       await writeFile(inputPath, normalizedMarkdown(), "utf8");
+      await writeFile(founderProfilePath, "Experienced founder", "utf8");
 
       await runFileIdeaAnalysis(
         {
           inputPath,
+          founderProfilePath,
           analysisJsonPath: path.join(directory, "analysis.json"),
           analysisMarkdownPath: path.join(directory, "analysis.md"),
           model: "deepseek-r1:8b",
@@ -207,6 +217,7 @@ describe("file-based Idea analysis run", () => {
         runFileIdeaAnalysis(
           {
             inputPath: path.join(directory, "missing.md"),
+            founderProfilePath: path.join(directory, "founder-profile.md"),
             analysisJsonPath: path.join(directory, "analysis.json"),
             analysisMarkdownPath: path.join(directory, "analysis.md"),
           },
@@ -216,7 +227,7 @@ describe("file-based Idea analysis run", () => {
     });
   });
 
-  it("does not write analysis artifacts when analysis fails or needs clarification", async () => {
+  it("fails clearly without writing artifacts when the Founder Profile is missing", async () => {
     await withTempDir(async (directory) => {
       const inputPath = path.join(directory, "normalized.md");
       const analysisJsonPath = path.join(directory, "analysis.json");
@@ -225,7 +236,85 @@ describe("file-based Idea analysis run", () => {
 
       await expect(
         runFileIdeaAnalysis(
-          { inputPath, analysisJsonPath, analysisMarkdownPath },
+          {
+            inputPath,
+            founderProfilePath: path.join(directory, "missing-founder-profile.md"),
+            analysisJsonPath,
+            analysisMarkdownPath,
+          },
+          { runIdeaAnalysis: async () => analysisResponse() }
+        )
+      ).rejects.toThrow(/Founder Profile markdown not found/i);
+
+      expect(await exists(analysisJsonPath)).toBe(false);
+      expect(await exists(analysisMarkdownPath)).toBe(false);
+    });
+  });
+
+  it("fails clearly without writing artifacts when the Founder Profile is empty", async () => {
+    await withTempDir(async (directory) => {
+      const inputPath = path.join(directory, "normalized.md");
+      const founderProfilePath = path.join(directory, "founder-profile.md");
+      const analysisJsonPath = path.join(directory, "analysis.json");
+      const analysisMarkdownPath = path.join(directory, "analysis.md");
+      await writeFile(inputPath, normalizedMarkdown(), "utf8");
+      await writeFile(founderProfilePath, "  \n", "utf8");
+
+      await expect(
+        runFileIdeaAnalysis(
+          { inputPath, founderProfilePath, analysisJsonPath, analysisMarkdownPath },
+          { runIdeaAnalysis: async () => analysisResponse() }
+        )
+      ).rejects.toThrow(/Founder Profile markdown is empty/i);
+
+      expect(await exists(analysisJsonPath)).toBe(false);
+      expect(await exists(analysisMarkdownPath)).toBe(false);
+    });
+  });
+
+  it("fails before analysis without writing artifacts when the Founder Profile is unreadable", async () => {
+    await withTempDir(async (directory) => {
+      const inputPath = path.join(directory, "normalized.md");
+      const analysisJsonPath = path.join(directory, "analysis.json");
+      const analysisMarkdownPath = path.join(directory, "analysis.md");
+      let analysisCalls = 0;
+      await writeFile(inputPath, normalizedMarkdown(), "utf8");
+
+      await expect(
+        runFileIdeaAnalysis(
+          {
+            inputPath,
+            founderProfilePath: directory,
+            analysisJsonPath,
+            analysisMarkdownPath,
+          },
+          {
+            runIdeaAnalysis: async () => {
+              analysisCalls += 1;
+              return analysisResponse();
+            },
+          }
+        )
+      ).rejects.toThrow(/Founder Profile could not be read/i);
+
+      expect(analysisCalls).toBe(0);
+      expect(await exists(analysisJsonPath)).toBe(false);
+      expect(await exists(analysisMarkdownPath)).toBe(false);
+    });
+  });
+
+  it("does not write analysis artifacts when analysis fails or needs clarification", async () => {
+    await withTempDir(async (directory) => {
+      const inputPath = path.join(directory, "normalized.md");
+      const founderProfilePath = path.join(directory, "founder-profile.md");
+      const analysisJsonPath = path.join(directory, "analysis.json");
+      const analysisMarkdownPath = path.join(directory, "analysis.md");
+      await writeFile(inputPath, normalizedMarkdown(), "utf8");
+      await writeFile(founderProfilePath, "Experienced founder", "utf8");
+
+      await expect(
+        runFileIdeaAnalysis(
+          { inputPath, founderProfilePath, analysisJsonPath, analysisMarkdownPath },
           {
             runIdeaAnalysis: async () => ({
               status: "needs_clarification",
@@ -248,15 +337,17 @@ describe("file-based Idea analysis run", () => {
   it("does not write partial final artifacts when an output write fails", async () => {
     await withTempDir(async (directory) => {
       const inputPath = path.join(directory, "normalized.md");
+      const founderProfilePath = path.join(directory, "founder-profile.md");
       const analysisJsonPath = path.join(directory, "analysis.json");
       const blockedParentPath = path.join(directory, "blocked-parent");
       const analysisMarkdownPath = path.join(blockedParentPath, "analysis.md");
       await writeFile(inputPath, normalizedMarkdown(), "utf8");
+      await writeFile(founderProfilePath, "Experienced founder", "utf8");
       await writeFile(blockedParentPath, "not a directory", "utf8");
 
       await expect(
         runFileIdeaAnalysis(
-          { inputPath, analysisJsonPath, analysisMarkdownPath },
+          { inputPath, founderProfilePath, analysisJsonPath, analysisMarkdownPath },
           { runIdeaAnalysis: async () => analysisResponse() }
         )
       ).rejects.toThrow();
@@ -269,13 +360,15 @@ describe("file-based Idea analysis run", () => {
   it("validates normalized markdown before running analysis", async () => {
     await withTempDir(async (directory) => {
       const inputPath = path.join(directory, "normalized.md");
+      const founderProfilePath = path.join(directory, "founder-profile.md");
       const analysisJsonPath = path.join(directory, "analysis.json");
       const analysisMarkdownPath = path.join(directory, "analysis.md");
       await writeFile(inputPath, "# One-Sentence Idea\n\nA reporting service for small landlords.", "utf8");
+      await writeFile(founderProfilePath, "Experienced founder", "utf8");
 
       await expect(
         runFileIdeaAnalysis(
-          { inputPath, analysisJsonPath, analysisMarkdownPath },
+          { inputPath, founderProfilePath, analysisJsonPath, analysisMarkdownPath },
           { runIdeaAnalysis: async () => {
             throw new Error("analysis should not run for invalid normalized markdown");
           } }

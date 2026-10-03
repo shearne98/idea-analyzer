@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AnalysisResponse, ClarificationResponse } from "@/lib/analysis-types";
 import { createAnalyzePostHandler } from "@/app/api/analyze/route";
+import { FounderProfileError } from "@/lib/founder-profile";
 
 function performance() {
   return {
@@ -116,6 +117,9 @@ describe("website analyze API", () => {
     const calls: unknown[] = [];
     const response = analysisResponse();
     const POST = createAnalyzePostHandler({
+      founderProfilePath: "C:\\hearne-os\\founder-profile.md",
+      readFounderProfile: async () =>
+        "# Founder Profile\n\nHas direct access to small landlords.",
       runIdeaAnalysis: async (input) => {
         calls.push(input);
         return response;
@@ -133,6 +137,7 @@ describe("website analyze API", () => {
     expect(calls).toEqual([
       {
         idea: "A reporting service for small landlords.",
+        founderProfile: "# Founder Profile\n\nHas direct access to small landlords.",
         model: "qwen3:8b",
         deepThinking: false,
       },
@@ -151,8 +156,36 @@ describe("website analyze API", () => {
     });
   });
 
+  it("reads the Founder Profile fresh for every request", async () => {
+    const suppliedProfiles: string[] = [];
+    let profileVersion = 0;
+    const POST = createAnalyzePostHandler({
+      founderProfilePath: "C:\\hearne-os\\founder-profile.md",
+      readFounderProfile: async () => `Founder Profile version ${++profileVersion}`,
+      runIdeaAnalysis: async ({ founderProfile }) => {
+        suppliedProfiles.push(founderProfile);
+        return analysisResponse();
+      },
+    });
+
+    const requestBody = {
+      idea: "A reporting service for small landlords.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    };
+    await POST(jsonRequest(requestBody));
+    await POST(jsonRequest(requestBody));
+
+    expect(suppliedProfiles).toEqual([
+      "Founder Profile version 1",
+      "Founder Profile version 2",
+    ]);
+  });
+
   it("preserves clarification responses from the shared core", async () => {
     const POST = createAnalyzePostHandler({
+      founderProfilePath: "C:\\hearne-os\\founder-profile.md",
+      readFounderProfile: async () => "# Founder Profile\n\nExperienced founder.",
       runIdeaAnalysis: async () => clarificationResponse(),
     });
 
@@ -172,4 +205,51 @@ describe("website analyze API", () => {
       possibleDirections: ["A landlord service"],
     });
   });
+
+  it("reports missing Founder Profile configuration without exposing a filesystem path", async () => {
+    const POST = createAnalyzePostHandler({
+      founderProfilePath: "",
+      runIdeaAnalysis: async () => analysisResponse(),
+    });
+
+    const result = await POST(jsonRequest({
+      idea: "A reporting service for small landlords.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    }));
+    const data = await result.json();
+
+    expect(result.status).toBe(500);
+    expect(data).toEqual({ error: "Founder Profile is not configured." });
+    expect(JSON.stringify(data)).not.toContain("C:\\");
+  });
+
+  it.each([
+    ["empty", new FounderProfileError("Founder Profile is empty.", "empty")],
+    ["unreadable", new FounderProfileError("Founder Profile could not be read.", "unreadable")],
+  ])(
+    "fails before website analysis when the configured Founder Profile is %s",
+    async (_kind, profileError) => {
+      const analyze = vi.fn(async () => analysisResponse());
+      const POST = createAnalyzePostHandler({
+        founderProfilePath: "C:\\private\\founder-profile.md",
+        readFounderProfile: async () => {
+          throw profileError;
+        },
+        runIdeaAnalysis: analyze,
+      });
+
+      const result = await POST(jsonRequest({
+        idea: "A reporting service for small landlords.",
+        model: "qwen3:8b",
+        deepThinking: false,
+      }));
+      const data = await result.json();
+
+      expect(result.status).toBe(500);
+      expect(data).toEqual({ error: profileError.message });
+      expect(JSON.stringify(data)).not.toContain("C:\\private");
+      expect(analyze).not.toHaveBeenCalled();
+    }
+  );
 });

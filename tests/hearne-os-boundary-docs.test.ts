@@ -19,7 +19,9 @@ describe("Hearne OS file workflow boundary docs", () => {
   it("documents the Idea Analyzer boundary and preserved website surface", async () => {
     const readme = await readReadme();
 
-    expect(readme).toMatch(/Idea Analyzer owns `normalized\.md -> analysis\.json -> analysis\.md`/i);
+    expect(readme).toMatch(
+      /Idea Analyzer owns `normalized\.md \+ Founder Profile -> analysis\.json -> analysis\.md`/i
+    );
     expect(readme).toMatch(/Notion import/i);
     expect(readme).toMatch(/workspace scaffolding/i);
     expect(readme).toMatch(/normalization interviews/i);
@@ -27,6 +29,14 @@ describe("Hearne OS file workflow boundary docs", () => {
     expect(readme).toMatch(/future ranking workflows/i);
     expect(readme).toMatch(/website remains a secondary surface/i);
     expect(readme).toMatch(/same analyzer core/i);
+  });
+
+  it("documents explicit Founder Profile ownership and configuration", async () => {
+    const readme = await readReadme();
+
+    expect(readme).toMatch(/Hearne OS owns .*canonical Founder Profile/i);
+    expect(readme).toMatch(/--founder-profile/i);
+    expect(readme).toMatch(/FOUNDER_PROFILE_PATH/i);
   });
 
   it("documents the normalized idea v1 schema owned by Idea Analyzer", async () => {

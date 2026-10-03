@@ -4,6 +4,7 @@ import { findAnalysisMode, isAnalysisModeId, isOllamaModel } from "@/lib/ollama-
 
 type CliOptions = {
   inputPath?: string;
+  founderProfilePath?: string;
   analysisJsonPath?: string;
   analysisMarkdownPath?: string;
   mode?: string;
@@ -12,9 +13,9 @@ type CliOptions = {
 };
 
 function usage() {
-  return `Usage: npm run analyze:file -- --input <normalized.md> --analysis-json <analysis.json> --analysis-md <analysis.md> [--mode balanced] [--model qwen3:8b] [--deep-thinking true|false]
+  return `Usage: npm run analyze:file -- --input <normalized.md> --founder-profile <founder-profile.md> --analysis-json <analysis.json> --analysis-md <analysis.md> [--mode balanced] [--model qwen3:8b] [--deep-thinking true|false]
 
-Runs the shared Idea analysis run core for a normalized markdown file and writes canonical JSON plus rendered markdown to explicit output paths.`;
+Runs the shared Idea analysis run core with an explicit Founder Profile and writes canonical JSON plus rendered markdown to explicit output paths.`;
 }
 
 function readValue(args: string[], index: number, flag: string) {
@@ -43,6 +44,10 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--analysis-json":
         options.analysisJsonPath = readValue(args, index, arg);
+        index += 1;
+        break;
+      case "--founder-profile":
+        options.founderProfilePath = readValue(args, index, arg);
         index += 1;
         break;
       case "--analysis-md":
@@ -93,6 +98,10 @@ async function main() {
 
   const result = await runFileIdeaAnalysis({
     inputPath: requireOption(options.inputPath, "--input"),
+    founderProfilePath: requireOption(
+      options.founderProfilePath,
+      "--founder-profile"
+    ),
     analysisJsonPath: requireOption(options.analysisJsonPath, "--analysis-json"),
     analysisMarkdownPath: requireOption(options.analysisMarkdownPath, "--analysis-md"),
     model,

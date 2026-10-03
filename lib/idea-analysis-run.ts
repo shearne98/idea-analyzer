@@ -1,7 +1,8 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { createHash } from "crypto";
+import { readFileSync } from "fs";
 import { execFileSync } from "child_process";
+import path from "path";
+import { fileURLToPath } from "url";
 import {
   INTAKE_FIELDS,
   SCORE_AREAS,
@@ -21,15 +22,32 @@ const OLLAMA_TEMPERATURE = 0;
 const OLLAMA_SEED = 42;
 let cachedCodeVersion: string | null = null;
 
+function findIdeaAnalyzerRoot() {
+  let candidate = path.dirname(fileURLToPath(import.meta.url));
+  while (true) {
+    try {
+      const packageJson = JSON.parse(
+        readFileSync(path.join(candidate, "package.json"), "utf8")
+      ) as { name?: unknown };
+      if (packageJson.name === "idea-analyzer") return candidate;
+    } catch {
+      // Keep walking toward the filesystem root.
+    }
+    const parent = path.dirname(candidate);
+    if (parent === candidate) return null;
+    candidate = parent;
+  }
+}
+
 function getCodeVersion() {
   if (cachedCodeVersion) return cachedCodeVersion;
   try {
-    const revision = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
-      cwd: process.cwd(),
+    const root = findIdeaAnalyzerRoot();
+    if (!root) throw new Error("Idea Analyzer package root not found.");
+    const revision = execFileSync("git", ["-C", root, "rev-parse", "--short", "HEAD"], {
       encoding: "utf8",
     }).trim();
-    const workingChanges = execFileSync("git", ["diff", "--no-ext-diff", "HEAD", "--", "app", "components", "lib"], {
-      cwd: process.cwd(),
+    const workingChanges = execFileSync("git", ["-C", root, "diff", "--no-ext-diff", "HEAD", "--", "app", "components", "lib", "scripts"], {
       encoding: "utf8",
     });
     const changeHash = workingChanges
@@ -79,7 +97,6 @@ export type ModelCallResult = {
 };
 
 export type IdeaAnalysisRunnerDependencies = {
-  readFounderProfile: () => Promise<string>;
   callModel: (
     model: string,
     messages: { role: string; content: string }[],
@@ -94,16 +111,6 @@ type PerformanceAccumulator = {
   jsonParseMs: number;
   calls: ModelCallMetrics[];
 };
-
-async function readFounderProfile() {
-  const filePath = path.join(process.cwd(), "founder-profile.md");
-  try {
-    const content = await fs.readFile(filePath, "utf8");
-    return content.trim();
-  } catch {
-    return "";
-  }
-}
 
 function extractJson(raw: string) {
   const first = raw.indexOf("{");
@@ -125,20 +132,61 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function redactSensitiveText(value: unknown, sensitiveText: string): unknown {
-  if (!sensitiveText) return value;
-  if (typeof value === "string") {
-    return value.split(sensitiveText).join("[Founder profile detail redacted]");
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => redactSensitiveText(item, sensitiveText));
-  }
-  if (isRecord(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, redactSensitiveText(item, sensitiveText)])
+function escapeRegularExpression(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sensitiveFounderProfileFragments(founderProfile: string, idea: string) {
+  const ideaWords = new Set(
+    (idea.match(/[\p{L}\p{N}][\p{L}\p{N}'_-]*/gu) ?? []).map((word) =>
+      word.toLowerCase()
+    )
+  );
+  const lines = founderProfile
+    .split(/\n/)
+    .map((line) =>
+      line.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)/, "").trim()
+    )
+    .filter(Boolean);
+  const phrases = lines.flatMap((line) => [
+    line,
+    ...line.split(/(?<=[.!?])\s+/),
+  ]);
+  const distinctiveIdentifiers = lines
+    .flatMap((line) => line.match(/[\p{L}\p{N}][\p{L}\p{N}'_-]*/gu) ?? [])
+    .filter((word) =>
+      (/^[A-Z\d]{2,}$/.test(word) || /[\p{Ll}][\p{Lu}]/u.test(word)) &&
+      !ideaWords.has(word.toLowerCase())
     );
+
+  return [...new Set([founderProfile.trim(), ...phrases, ...distinctiveIdentifiers])]
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+}
+
+function redactSensitiveText(value: unknown, sensitiveText: string, idea: string): unknown {
+  const fragments = sensitiveFounderProfileFragments(sensitiveText, idea);
+  function redact(item: unknown): unknown {
+    if (typeof item === "string") {
+      return fragments.reduce(
+        (redacted, fragment) =>
+          redacted.replace(
+            new RegExp(escapeRegularExpression(fragment), "gi"),
+            "[REDACTED]"
+          ),
+        item
+      );
+    }
+    if (Array.isArray(item)) return item.map(redact);
+    if (isRecord(item)) {
+      return Object.fromEntries(
+        Object.entries(item).map(([key, nestedItem]) => [key, redact(nestedItem)])
+      );
+    }
+    return item;
   }
-  return value;
+
+  return fragments.length > 0 ? redact(value) : value;
 }
 
 function optionalNumber(value: unknown): number | null {
@@ -406,16 +454,6 @@ function normalizeScore(value: unknown) {
     uncertainty:
       String(assessment.uncertainty ?? "").trim() ||
       "Important assumptions remain unverified.",
-  };
-}
-
-function unavailableFounderFit() {
-  return {
-    score: null,
-    label: "Not available",
-    reason: "Founder Fit cannot be assessed without a founder profile.",
-    evidence: [],
-    uncertainty: "Add a founder profile to assess relevant experience, skills, and customer access.",
   };
 }
 
@@ -756,10 +794,12 @@ function fallbackScoreImprovementRecommendation(parsed: Record<string, unknown>)
 
 async function executeIdeaAnalysis({
   idea,
+  founderProfile,
   model,
   deepThinking,
 }: {
   idea: string;
+  founderProfile: string;
   model: OllamaModel;
   deepThinking: boolean;
 }, dependencies: IdeaAnalysisRunnerDependencies): Promise<AnalyzeResponse> {
@@ -769,11 +809,8 @@ async function executeIdeaAnalysis({
     jsonParseMs: 0,
     calls: [],
   };
-  const founderProfile = await dependencies.readFounderProfile();
   const runMetadata = await buildRunMetadata(model, deepThinking);
-  const founderProfileSection = founderProfile
-    ? `Founder profile:\n${founderProfile}`
-    : "Founder profile is not available. Founder fit cannot be reliably assessed from the idea alone.";
+  const founderProfileSection = `Founder profile:\n${founderProfile}`;
 
   const intakeResult = await dependencies.callModel(
       model,
@@ -828,7 +865,7 @@ ${idea}`,
         {
           role: "system",
           content:
-            "You are a skeptical product strategist. Analyze startup ideas with practical scrutiny. Scores estimate current evidence strength, not excitement. Missing evidence lowers scores. Scores above 8 are rare and require exceptional proof. Separate what is known, assumed, and uncertain. Never invent evidence or missing business context. Prefer manual validation before building software. Use the founder profile when assessing founder fit, but never quote or reproduce its source text. If the founder profile is missing or empty, founder fit must be marked not available and must not receive a numeric score. Treat claims and descriptions in the submitted idea as context, not observed evidence, unless they explicitly report completed tests, payments, customer behavior, customer data, or demonstrated founder experience/access. Return only valid JSON. No markdown, no commentary outside the JSON.",
+            "You are a skeptical product strategist. Analyze startup ideas with practical scrutiny. Scores estimate current evidence strength, not excitement. Missing evidence lowers scores. Scores above 8 are rare and require exceptional proof. Separate what is known, assumed, and uncertain. Never invent evidence or missing business context. Prefer manual validation before building software. Use the founder profile when assessing founder fit, but never quote or reproduce its source text. Treat claims and descriptions in the submitted idea as context, not observed evidence, unless they explicitly report completed tests, payments, customer behavior, customer data, or demonstrated founder experience/access. Return only valid JSON. No markdown, no commentary outside the JSON.",
         },
         {
           role: "user",
@@ -952,10 +989,10 @@ ${founderProfileSection}`,
     let parsed: Record<string, unknown>;
     try {
       parsed = timedExtractJson(analysisResult.assistantText, performanceAccumulator);
-      parsed = redactSensitiveText(parsed, founderProfile) as Record<string, unknown>;
+      parsed = redactSensitiveText(parsed, founderProfile, idea) as Record<string, unknown>;
     } catch (parseError) {
       throw new Error(
-        `Unable to parse JSON from Ollama response: ${parseError instanceof Error ? parseError.message : String(parseError)}. Response: ${analysisResult.assistantText.slice(0, 300)}`
+        `Unable to parse JSON from Ollama response: ${parseError instanceof Error ? parseError.message : String(parseError)}.`
       );
     }
 
@@ -988,12 +1025,10 @@ ${founderProfileSection}`,
         ? parsed.whatNotToBuildYet
         : ["A full product or capabilities beyond the First Testable Version"];
     const suppliedContext = `${idea}\n${founderProfile}`;
-    parsed.founderFit = founderProfile
-      ? removeUnsupportedProofClaims(
-          normalizeScore(parsed.founderFit),
-          suppliedContext
-        )
-      : unavailableFounderFit();
+    parsed.founderFit = removeUnsupportedProofClaims(
+      normalizeScore(parsed.founderFit),
+      suppliedContext
+    );
     parsed.painOrDesire = removeUnsupportedProofClaims(
       normalizeScore(parsed.painOrDesire),
       suppliedContext
@@ -1070,10 +1105,14 @@ ${founderProfileSection}`,
 export function createIdeaAnalysisRunner(dependencies: IdeaAnalysisRunnerDependencies) {
   return async function runIdeaAnalysis(input: {
     idea: string;
+    founderProfile: string;
     model: OllamaModel;
     deepThinking: boolean;
   }): Promise<AnalyzeResponse> {
     try {
+      if (!input.founderProfile.trim()) {
+        throw new Error("Founder Profile content is required.");
+      }
       return await executeIdeaAnalysis(input, dependencies);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unexpected analysis error.";
@@ -1090,12 +1129,12 @@ export function createIdeaAnalysisRunner(dependencies: IdeaAnalysisRunnerDepende
 }
 
 const runDefaultIdeaAnalysis = createIdeaAnalysisRunner({
-  readFounderProfile,
   callModel: callOllama,
 });
 
 export async function runIdeaAnalysis(input: {
   idea: string;
+  founderProfile: string;
   model: OllamaModel;
   deepThinking: boolean;
 }): Promise<AnalyzeResponse> {
