@@ -132,19 +132,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-const SAFE_PROFILE_WORDS = new Set([
-  "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has",
-  "have", "in", "is", "it", "of", "on", "or", "that", "the", "their", "they",
-  "this", "to", "was", "were", "will", "with", "founder", "profile", "business",
-  "idea", "customer", "customers", "user", "users", "experience", "skills",
-  "access", "motivation",
-]);
-
 function escapeRegularExpression(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function sensitiveFounderProfileFragments(founderProfile: string) {
+function sensitiveFounderProfileFragments(founderProfile: string, idea: string) {
+  const ideaWords = new Set(
+    (idea.match(/[\p{L}\p{N}][\p{L}\p{N}'_-]*/gu) ?? []).map((word) =>
+      word.toLowerCase()
+    )
+  );
   const lines = founderProfile
     .split(/\n/)
     .map((line) =>
@@ -155,20 +152,20 @@ function sensitiveFounderProfileFragments(founderProfile: string) {
     line,
     ...line.split(/(?<=[.!?])\s+/),
   ]);
-  const distinctiveWords = lines
+  const distinctiveIdentifiers = lines
     .flatMap((line) => line.match(/[\p{L}\p{N}][\p{L}\p{N}'_-]*/gu) ?? [])
     .filter((word) =>
-      (/^[A-Z\d]{2,}$/.test(word) || word.length >= 4) &&
-      !SAFE_PROFILE_WORDS.has(word.toLowerCase())
+      (/^[A-Z\d]{2,}$/.test(word) || /[\p{Ll}][\p{Lu}]/u.test(word)) &&
+      !ideaWords.has(word.toLowerCase())
     );
 
-  return [...new Set([founderProfile.trim(), ...phrases, ...distinctiveWords])]
+  return [...new Set([founderProfile.trim(), ...phrases, ...distinctiveIdentifiers])]
     .filter(Boolean)
     .sort((left, right) => right.length - left.length);
 }
 
-function redactSensitiveText(value: unknown, sensitiveText: string): unknown {
-  const fragments = sensitiveFounderProfileFragments(sensitiveText);
+function redactSensitiveText(value: unknown, sensitiveText: string, idea: string): unknown {
+  const fragments = sensitiveFounderProfileFragments(sensitiveText, idea);
   function redact(item: unknown): unknown {
     if (typeof item === "string") {
       return fragments.reduce(
@@ -992,7 +989,7 @@ ${founderProfileSection}`,
     let parsed: Record<string, unknown>;
     try {
       parsed = timedExtractJson(analysisResult.assistantText, performanceAccumulator);
-      parsed = redactSensitiveText(parsed, founderProfile) as Record<string, unknown>;
+      parsed = redactSensitiveText(parsed, founderProfile, idea) as Record<string, unknown>;
     } catch (parseError) {
       throw new Error(
         `Unable to parse JSON from Ollama response: ${parseError instanceof Error ? parseError.message : String(parseError)}.`

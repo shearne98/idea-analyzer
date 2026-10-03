@@ -272,6 +272,37 @@ describe("file-based Idea analysis run", () => {
     });
   });
 
+  it("fails before analysis without writing artifacts when the Founder Profile is unreadable", async () => {
+    await withTempDir(async (directory) => {
+      const inputPath = path.join(directory, "normalized.md");
+      const analysisJsonPath = path.join(directory, "analysis.json");
+      const analysisMarkdownPath = path.join(directory, "analysis.md");
+      let analysisCalls = 0;
+      await writeFile(inputPath, normalizedMarkdown(), "utf8");
+
+      await expect(
+        runFileIdeaAnalysis(
+          {
+            inputPath,
+            founderProfilePath: directory,
+            analysisJsonPath,
+            analysisMarkdownPath,
+          },
+          {
+            runIdeaAnalysis: async () => {
+              analysisCalls += 1;
+              return analysisResponse();
+            },
+          }
+        )
+      ).rejects.toThrow(/Founder Profile could not be read/i);
+
+      expect(analysisCalls).toBe(0);
+      expect(await exists(analysisJsonPath)).toBe(false);
+      expect(await exists(analysisMarkdownPath)).toBe(false);
+    });
+  });
+
   it("does not write analysis artifacts when analysis fails or needs clarification", async () => {
     await withTempDir(async (directory) => {
       const inputPath = path.join(directory, "normalized.md");

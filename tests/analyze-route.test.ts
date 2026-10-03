@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AnalysisResponse, ClarificationResponse } from "@/lib/analysis-types";
 import { createAnalyzePostHandler } from "@/app/api/analyze/route";
+import { FounderProfileError } from "@/lib/founder-profile";
 
 function performance() {
   return {
@@ -222,4 +223,33 @@ describe("website analyze API", () => {
     expect(data).toEqual({ error: "Founder Profile is not configured." });
     expect(JSON.stringify(data)).not.toContain("C:\\");
   });
+
+  it.each([
+    ["empty", new FounderProfileError("Founder Profile is empty.", "empty")],
+    ["unreadable", new FounderProfileError("Founder Profile could not be read.", "unreadable")],
+  ])(
+    "fails before website analysis when the configured Founder Profile is %s",
+    async (_kind, profileError) => {
+      const analyze = vi.fn(async () => analysisResponse());
+      const POST = createAnalyzePostHandler({
+        founderProfilePath: "C:\\private\\founder-profile.md",
+        readFounderProfile: async () => {
+          throw profileError;
+        },
+        runIdeaAnalysis: analyze,
+      });
+
+      const result = await POST(jsonRequest({
+        idea: "A reporting service for small landlords.",
+        model: "qwen3:8b",
+        deepThinking: false,
+      }));
+      const data = await result.json();
+
+      expect(result.status).toBe(500);
+      expect(data).toEqual({ error: profileError.message });
+      expect(JSON.stringify(data)).not.toContain("C:\\private");
+      expect(analyze).not.toHaveBeenCalled();
+    }
+  );
 });

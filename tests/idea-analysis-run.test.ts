@@ -566,6 +566,61 @@ describe("Idea analysis run", () => {
     performanceLog.mockRestore();
   });
 
+  it("preserves analysis terms that are also present in the submitted idea", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses(
+      [
+        readyIntake(),
+        completeAnalysis({
+          ideaSummary: "A reporting service for small landlords.",
+          targetCustomer: "Small landlords",
+        }),
+      ],
+      "# Founder Profile\n\nHas direct access to small landlords."
+    );
+
+    const result = await runIdeaAnalysis({
+      idea: "A reporting service for small landlords with a manual first test.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.ideaSummary).toBe("A reporting service for small landlords.");
+    expect(result.targetCustomer).toBe("Small landlords");
+  });
+
+  it("preserves ordinary analysis language that also appears in the Founder Profile", async () => {
+    const { runIdeaAnalysis } = createRunnerWithResponses(
+      [
+        readyIntake(),
+        completeAnalysis({
+          firstTestableVersion: "Use manual delivery for the first customer.",
+          strategyReason: "Manual delivery is feasible before automation.",
+          mvpTestability: {
+            score: 7,
+            reason: "Manual delivery is feasible.",
+            evidence: [],
+            uncertainty: "Whether the workflow repeats efficiently.",
+          },
+        }),
+      ],
+      "# Founder Profile\n\nHas experience with manual delivery workflows."
+    );
+
+    const result = await runIdeaAnalysis({
+      idea: "A detailed reporting service with a clear buyer and first test.",
+      model: "qwen3:8b",
+      deepThinking: false,
+    });
+
+    expect(result.status).toBe("analysis");
+    if (result.status !== "analysis") throw new Error("Expected analysis response.");
+    expect(result.firstTestableVersion).toContain("manual delivery");
+    expect(result.strategyReason).toContain("Manual delivery");
+    expect(result.mvpTestability.reason).toContain("Manual delivery");
+  });
+
   it("removes strong proof claims that are not grounded in supplied context", async () => {
     const { runIdeaAnalysis } = createRunnerWithResponses([
       readyIntake(),
