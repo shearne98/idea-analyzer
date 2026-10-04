@@ -16,7 +16,7 @@ function analysisResponse(): AnalysisResponse {
 
   return {
     status: "analysis",
-    ideaSummary: "A reporting service for small landlords.",
+    ideaSummary: "A done-for-you monthly reporting service for small landlords.",
     oneSentenceVerdict: "Validate payment before building software.",
     strongestVersion: "A done-for-you reporting service for landlords.",
     firstTestableVersion: "Sell and deliver one report manually.",
@@ -114,7 +114,7 @@ function normalizedMarkdown() {
   return `idea_analyzer_schema_version: 1
 
 # One-Sentence Idea
-A reporting service for small landlords.
+A done-for-you monthly reporting service for small landlords.
 
 # Target Customer
 Small landlords who manage maintenance and rent reporting themselves.
@@ -151,6 +151,71 @@ The first test can validate whether landlords pay before software is built.
 }
 
 describe("file-based Idea analysis run", () => {
+  it("blocks final analysis and artifacts when readiness has blockers", async () => {
+    await withTempDir(async (directory) => {
+      const inputPath = path.join(directory, "normalized.md");
+      const founderProfilePath = path.join(directory, "founder-profile.md");
+      const analysisJsonPath = path.join(directory, "analysis.json");
+      const analysisMarkdownPath = path.join(directory, "analysis.md");
+      let analysisCalls = 0;
+      await writeFile(
+        inputPath,
+        normalizedMarkdown().replace(
+          "Small landlords who manage maintenance and rent reporting themselves.",
+          "Everyone"
+        ),
+        "utf8"
+      );
+      await writeFile(founderProfilePath, "Experienced founder", "utf8");
+
+      await expect(
+        runFileIdeaAnalysis(
+          { inputPath, founderProfilePath, analysisJsonPath, analysisMarkdownPath },
+          {
+            runIdeaAnalysis: async () => {
+              analysisCalls += 1;
+              return analysisResponse();
+            },
+          }
+        )
+      ).rejects.toThrow(/readiness blockers.*Target Customer/i);
+
+      expect(analysisCalls).toBe(0);
+      expect(await exists(analysisJsonPath)).toBe(false);
+      expect(await exists(analysisMarkdownPath)).toBe(false);
+    });
+  });
+
+  it("includes readiness warnings in run metadata when analysis proceeds", async () => {
+    await withTempDir(async (directory) => {
+      const inputPath = path.join(directory, "normalized.md");
+      const founderProfilePath = path.join(directory, "founder-profile.md");
+      const analysisJsonPath = path.join(directory, "analysis.json");
+      const analysisMarkdownPath = path.join(directory, "analysis.md");
+      await writeFile(
+        inputPath,
+        normalizedMarkdown().replace(
+          "The first test can validate whether landlords pay before software is built.",
+          "No evidence yet."
+        ),
+        "utf8"
+      );
+      await writeFile(founderProfilePath, "Experienced founder", "utf8");
+
+      const result = await runFileIdeaAnalysis(
+        { inputPath, founderProfilePath, analysisJsonPath, analysisMarkdownPath },
+        { runIdeaAnalysis: async () => analysisResponse() }
+      );
+
+      expect(result.readiness.readyForFinalAnalysis).toBe(true);
+      expect(result.readiness.warnings).toEqual([
+        expect.objectContaining({ code: "no_evidence_yet", section: "Evidence" }),
+      ]);
+      expect(await exists(analysisJsonPath)).toBe(true);
+      expect(await exists(analysisMarkdownPath)).toBe(true);
+    });
+  });
+
   it("reads normalized markdown and writes canonical JSON plus rendered markdown", async () => {
     await withTempDir(async (directory) => {
       const inputPath = path.join(directory, "normalized.md");
@@ -164,10 +229,10 @@ describe("file-based Idea analysis run", () => {
         "utf8"
       );
 
-      await runFileIdeaAnalysis(
+      const result = await runFileIdeaAnalysis(
         { inputPath, founderProfilePath, analysisJsonPath, analysisMarkdownPath },
         { runIdeaAnalysis: async ({ idea, founderProfile, model, deepThinking }) => {
-          expect(idea).toContain("A reporting service for small landlords.");
+          expect(idea).toContain("A done-for-you monthly reporting service for small landlords.");
           expect(founderProfile).toContain("Has direct access to small landlords.");
           expect(model).toBe("qwen3:8b");
           expect(deepThinking).toBe(false);
@@ -175,8 +240,11 @@ describe("file-based Idea analysis run", () => {
         } }
       );
 
+      expect(result.readiness.readyForFinalAnalysis).toBe(true);
+      expect(result.readiness.warnings).toEqual([]);
+
       const json = JSON.parse(await readFile(analysisJsonPath, "utf8"));
-      expect(json.status).toBe("analysis");
+      expect(json).toEqual(analysisResponse());
       expect(json.runMetadata.codeVersion).toBe("abc123");
 
       const markdown = await readFile(analysisMarkdownPath, "utf8");
@@ -363,7 +431,7 @@ describe("file-based Idea analysis run", () => {
       const founderProfilePath = path.join(directory, "founder-profile.md");
       const analysisJsonPath = path.join(directory, "analysis.json");
       const analysisMarkdownPath = path.join(directory, "analysis.md");
-      await writeFile(inputPath, "# One-Sentence Idea\n\nA reporting service for small landlords.", "utf8");
+      await writeFile(inputPath, "# One-Sentence Idea\n\nA done-for-you monthly reporting service for small landlords.", "utf8");
       await writeFile(founderProfilePath, "Experienced founder", "utf8");
 
       await expect(
