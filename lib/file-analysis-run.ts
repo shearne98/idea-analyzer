@@ -7,6 +7,7 @@ import {
   readFounderProfileMarkdown as readFounderProfile,
 } from "@/lib/founder-profile";
 import { runIdeaAnalysis } from "@/lib/idea-analysis-run";
+import { checkIdeaReadiness } from "@/lib/idea-readiness";
 import { validateNormalizedIdeaMarkdown } from "@/lib/normalized-idea";
 import {
   DEFAULT_ANALYSIS_MODE_ID,
@@ -141,6 +142,15 @@ export async function runFileIdeaAnalysis(
   dependencies: FileIdeaAnalysisDependencies = {}
 ) {
   const idea = await readNormalizedMarkdown(input.inputPath);
+  const readiness = checkIdeaReadiness(idea);
+  if (!readiness.readyForFinalAnalysis) {
+    const blockerSections = readiness.blockers
+      .map((blocker) => blocker.section ?? blocker.code)
+      .join(", ");
+    throw new FileIdeaAnalysisRunError(
+      `File-based Idea analysis cannot proceed because readiness blockers remain: ${blockerSections}.`
+    );
+  }
   const founderProfile = await readFounderProfileMarkdown(input.founderProfilePath);
   const { model, deepThinking } = resolveAnalysisConfiguration(input);
   const analyze = dependencies.runIdeaAnalysis ?? runIdeaAnalysis;
@@ -161,6 +171,7 @@ export async function runFileIdeaAnalysis(
     inputPath: input.inputPath,
     analysisJsonPath: input.analysisJsonPath,
     analysisMarkdownPath: input.analysisMarkdownPath,
+    readiness,
     response,
   };
 }

@@ -210,7 +210,11 @@ Optional configuration:
 - `--model <ollama-model>` overrides the model when supported.
 - `--deep-thinking true|false` overrides thinking mode.
 
-The command fails clearly for missing or empty normalized input, missing or empty Founder Profile content, unsupported configuration, local model/analysis failures, and clarification responses that are not completed analyses. It writes final artifacts only after both outputs are prepared, so failed runs do not leave misleading new analysis files.
+The command refreshes the deterministic readiness contract from `normalized.md` before final analysis. Any readiness blocker stops the run before the model is called and prevents `analysis.json` or `analysis.md` from being written. When analysis proceeds, the callable API returns the complete readiness result as run metadata, including any warnings; those warnings do not alter the canonical `AnalysisResponse` or rendered markdown shape.
+
+Final analysis reads only the explicit `--input` normalized idea and `--founder-profile` files. It never reads `source.md`. Explicit Founder Profile path loading, validation, and privacy behavior belong to issue #31 and are reused here rather than reimplemented by the readiness gate.
+
+The command fails clearly for missing or empty normalized input, readiness blockers, missing or empty Founder Profile content, unsupported configuration, local model/analysis failures, and clarification responses that are not completed analyses. It writes final artifacts only after both outputs are prepared, so failed runs do not leave misleading new analysis files.
 
 ## Development evaluation tools
 
