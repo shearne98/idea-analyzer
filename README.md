@@ -190,7 +190,7 @@ Each packet includes:
 
 External responses must use `contract: "idea-analyzer.external-execution.response"`, repeat the matching `contractVersion`, `packetId`, `runId`, `task`, and `backend`, include an ISO `generatedAt`, and return the task-specific output object. `validateExternalExecutionResponse` rejects malformed or incomplete responses with clear validation errors, including packet/task/backend mismatches, missing timestamps, wrong schema versions, incomplete readiness arrays, and partial analysis JSON.
 
-This is an adapter boundary only. It introduces no direct Hermes dependency; Hearne OS or another orchestrator is responsible for sending the packet to Hermes/Codex, local Ollama, or any other backend and then storing packet/response artifacts in run history.
+This is an adapter boundary only. It introduces no direct Hermes dependency; Hearne OS or another orchestrator is responsible for sending the packet to Hermes/Codex, local Ollama, or any other backend. The file-analysis API and CLI can write packet/response history to caller-selected paths, but Idea Analyzer does not choose or own the surrounding run-folder layout.
 
 ## File-based Idea analysis runs
 
@@ -209,6 +209,28 @@ Optional configuration:
 - `--mode <mode-id>` uses one of the supported analysis modes.
 - `--model <ollama-model>` overrides the model when supported.
 - `--deep-thinking true|false` overrides thinking mode.
+- `--readiness-json <path>` writes the latest readiness result separately from latest analysis output.
+- `--run-id <id>` supplies the history identity; otherwise the file runner creates one.
+- `--run-packet-json <path>`, `--run-response-json <path>`, `--run-validation-json <path>`, `--run-readiness-json <path>`, and `--run-debug-json <path>` opt into historical artifacts at explicit caller-owned paths.
+
+For example, a caller may keep latest outputs and one historical run separate without Idea Analyzer knowing the workspace layout:
+
+```bash
+npm run analyze:file -- \
+  --input /workspace/normalized.md \
+  --founder-profile /workspace/founder-profile.md \
+  --analysis-json /workspace/analysis.json \
+  --analysis-md /workspace/analysis.md \
+  --readiness-json /workspace/readiness.json \
+  --run-id 2026-10-04T190000Z \
+  --run-packet-json /workspace/runs/2026-10-04T190000Z/packet.json \
+  --run-response-json /workspace/runs/2026-10-04T190000Z/response.json \
+  --run-validation-json /workspace/runs/2026-10-04T190000Z/validation.json \
+  --run-readiness-json /workspace/runs/2026-10-04T190000Z/readiness.json \
+  --run-debug-json /workspace/runs/2026-10-04T190000Z/debug.json
+```
+
+Requested successful-run outputs are committed as one artifact set. If preparation or output commit fails, newly created final files are removed and pre-existing final files are restored. The packet contains normalized idea and Founder Profile content, so callers must treat historical packet files as private.
 
 The command refreshes the deterministic readiness contract from `normalized.md` before final analysis. Any readiness blocker stops the run before the model is called and prevents `analysis.json` or `analysis.md` from being written. When analysis proceeds, the callable API returns the complete readiness result as run metadata, including any warnings; those warnings do not alter the canonical `AnalysisResponse` or rendered markdown shape.
 

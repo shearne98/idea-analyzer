@@ -7,15 +7,22 @@ type CliOptions = {
   founderProfilePath?: string;
   analysisJsonPath?: string;
   analysisMarkdownPath?: string;
+  readinessJsonPath?: string;
+  runId?: string;
+  runPacketPath?: string;
+  runResponsePath?: string;
+  runValidationPath?: string;
+  runReadinessPath?: string;
+  runDebugPath?: string;
   mode?: string;
   model?: string;
   deepThinking?: boolean;
 };
 
 function usage() {
-  return `Usage: npm run analyze:file -- --input <normalized.md> --founder-profile <founder-profile.md> --analysis-json <analysis.json> --analysis-md <analysis.md> [--mode balanced] [--model qwen3:8b] [--deep-thinking true|false]
+  return `Usage: npm run analyze:file -- --input <normalized.md> --founder-profile <founder-profile.md> --analysis-json <analysis.json> --analysis-md <analysis.md> [--readiness-json <readiness.json>] [--run-id <id>] [--run-packet-json <packet.json>] [--run-response-json <response.json>] [--run-validation-json <validation.json>] [--run-readiness-json <readiness.json>] [--run-debug-json <debug.json>] [--mode balanced] [--model qwen3:8b] [--deep-thinking true|false]
 
-Runs the shared Idea analysis run core with an explicit Founder Profile and writes canonical JSON plus rendered markdown to explicit output paths.`;
+Runs the shared Idea analysis run core with an explicit Founder Profile, writes canonical JSON plus rendered markdown to explicit output paths, and optionally writes latest readiness and historical run artifacts.`;
 }
 
 function readValue(args: string[], index: number, flag: string) {
@@ -52,6 +59,34 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--analysis-md":
         options.analysisMarkdownPath = readValue(args, index, arg);
+        index += 1;
+        break;
+      case "--readiness-json":
+        options.readinessJsonPath = readValue(args, index, arg);
+        index += 1;
+        break;
+      case "--run-id":
+        options.runId = readValue(args, index, arg);
+        index += 1;
+        break;
+      case "--run-packet-json":
+        options.runPacketPath = readValue(args, index, arg);
+        index += 1;
+        break;
+      case "--run-response-json":
+        options.runResponsePath = readValue(args, index, arg);
+        index += 1;
+        break;
+      case "--run-validation-json":
+        options.runValidationPath = readValue(args, index, arg);
+        index += 1;
+        break;
+      case "--run-readiness-json":
+        options.runReadinessPath = readValue(args, index, arg);
+        index += 1;
+        break;
+      case "--run-debug-json":
+        options.runDebugPath = readValue(args, index, arg);
         index += 1;
         break;
       case "--mode":
@@ -104,6 +139,15 @@ async function main() {
     ),
     analysisJsonPath: requireOption(options.analysisJsonPath, "--analysis-json"),
     analysisMarkdownPath: requireOption(options.analysisMarkdownPath, "--analysis-md"),
+    readinessJsonPath: options.readinessJsonPath,
+    runId: options.runId,
+    runArtifactPaths: {
+      packetPath: options.runPacketPath,
+      responsePath: options.runResponsePath,
+      validationPath: options.runValidationPath,
+      readinessPath: options.runReadinessPath,
+      debugPath: options.runDebugPath,
+    },
     model,
     deepThinking: options.deepThinking ?? mode?.deepThinking,
   });
