@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import { describe, expect, it } from "vitest";
@@ -216,6 +216,68 @@ describe("file-based Idea analysis run", () => {
     });
   });
 
+  it("writes requested latest and historical run artifacts to explicit paths", async () => {
+    await withTempDir(async (directory) => {
+      const inputPath = path.join(directory, "normalized.md");
+      const founderProfilePath = path.join(directory, "founder-profile.md");
+      const analysisJsonPath = path.join(directory, "latest", "analysis.json");
+      const analysisMarkdownPath = path.join(directory, "latest", "analysis.md");
+      const readinessJsonPath = path.join(directory, "latest", "readiness.json");
+      const runArtifactPaths = {
+        packetPath: path.join(directory, "history", "packet.json"),
+        responsePath: path.join(directory, "history", "response.json"),
+        validationPath: path.join(directory, "history", "validation.json"),
+        readinessPath: path.join(directory, "history", "readiness.json"),
+        debugPath: path.join(directory, "history", "debug.json"),
+      };
+      await writeFile(inputPath, normalizedMarkdown(), "utf8");
+      await writeFile(founderProfilePath, "Experienced founder", "utf8");
+
+      const result = await runFileIdeaAnalysis(
+        {
+          inputPath,
+          founderProfilePath,
+          analysisJsonPath,
+          analysisMarkdownPath,
+          readinessJsonPath,
+          runId: "run-explicit-paths",
+          runArtifactPaths,
+        },
+        { runIdeaAnalysis: async () => analysisResponse() }
+      );
+
+      expect(result.runId).toBe("run-explicit-paths");
+      expect(JSON.parse(await readFile(readinessJsonPath, "utf8"))).toEqual(result.readiness);
+      expect(JSON.parse(await readFile(runArtifactPaths.readinessPath, "utf8"))).toEqual(
+        result.readiness
+      );
+
+      const packet = JSON.parse(await readFile(runArtifactPaths.packetPath, "utf8"));
+      expect(packet.task).toBe("analysis");
+      expect(packet.runId).toBe("run-explicit-paths");
+      expect(packet.backend).toEqual(
+        expect.objectContaining({ kind: "local_model", id: "ollama", model: "qwen3:8b" })
+      );
+
+      const modelResponse = JSON.parse(await readFile(runArtifactPaths.responsePath, "utf8"));
+      expect(modelResponse.packetId).toBe(packet.packetId);
+      expect(modelResponse.output).toEqual(analysisResponse());
+
+      const validation = JSON.parse(await readFile(runArtifactPaths.validationPath, "utf8"));
+      expect(validation).toEqual({ valid: true, errors: [] });
+
+      const debug = JSON.parse(await readFile(runArtifactPaths.debugPath, "utf8"));
+      expect(debug).toEqual(
+        expect.objectContaining({
+          runId: "run-explicit-paths",
+          status: "completed",
+          model: "qwen3:8b",
+          deepThinking: false,
+        })
+      );
+    });
+  });
+
   it("reads normalized markdown and writes canonical JSON plus rendered markdown", async () => {
     await withTempDir(async (directory) => {
       const inputPath = path.join(directory, "normalized.md");
@@ -422,6 +484,29 @@ describe("file-based Idea analysis run", () => {
 
       expect(await exists(analysisJsonPath)).toBe(false);
       expect(await exists(analysisMarkdownPath)).toBe(false);
+    });
+  });
+
+  it("restores existing final artifacts when a later output commit fails", async () => {
+    await withTempDir(async (directory) => {
+      const inputPath = path.join(directory, "normalized.md");
+      const founderProfilePath = path.join(directory, "founder-profile.md");
+      const analysisJsonPath = path.join(directory, "analysis.json");
+      const analysisMarkdownPath = path.join(directory, "analysis-md-directory");
+      await writeFile(inputPath, normalizedMarkdown(), "utf8");
+      await writeFile(founderProfilePath, "Experienced founder", "utf8");
+      await writeFile(analysisJsonPath, "previous analysis\n", "utf8");
+      await mkdir(analysisMarkdownPath);
+
+      await expect(
+        runFileIdeaAnalysis(
+          { inputPath, founderProfilePath, analysisJsonPath, analysisMarkdownPath },
+          { runIdeaAnalysis: async () => analysisResponse() }
+        )
+      ).rejects.toThrow();
+
+      expect(await readFile(analysisJsonPath, "utf8")).toBe("previous analysis\n");
+      expect((await stat(analysisMarkdownPath)).isDirectory()).toBe(true);
     });
   });
 
