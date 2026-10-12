@@ -1,3 +1,4 @@
+import { findEvidenceSentence } from "@/lib/evidence-extraction";
 import { checkIdeaReadiness, type IdeaReadinessResult } from "@/lib/idea-readiness";
 import {
   NORMALIZED_IDEA_SCHEMA_VERSION,
@@ -166,10 +167,7 @@ function collectSourceCandidates(source: string): Candidate[] {
     });
   }
 
-  const evidence = sentenceMatching(
-    source,
-    /(?:evidence|paid|pay|offered to pay|customer|interview|observed|tested)[^.!?]*(?:[.!?]|$)/i
-  );
+  const evidence = findEvidenceSentence(source);
   if (evidence) {
     candidates.push({
       section: "Evidence",

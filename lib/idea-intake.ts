@@ -1,4 +1,5 @@
 import type { IntakeFieldKey } from "@/lib/analysis-types";
+import { findEvidenceSentence } from "@/lib/evidence-extraction";
 import { checkIdeaReadiness, type IdeaReadinessResult } from "@/lib/idea-readiness";
 import {
   NORMALIZED_IDEA_REQUIRED_SECTIONS,
@@ -229,11 +230,9 @@ function sourceMaterialUpdates(parsed: NormalizedIdea, sourceMaterial?: string):
     }
   }
 
-  const evidenceMatch = source.match(
-    /(?:paid|pay|payment|customer|interview|observed|tested)[^.!?]*(?:[.!?]|$)/i
-  );
-  if (evidenceMatch && !firstTestMatch?.[0].includes(evidenceMatch[0])) {
-    const proposedValue = evidenceMatch[0].trim();
+  const evidenceMatch = findEvidenceSentence(source);
+  if (evidenceMatch && !firstTestMatch?.[0].includes(evidenceMatch)) {
+    const proposedValue = evidenceMatch.trim();
     if (proposedValue && !parsed.fields.evidence.includes(proposedValue)) {
       updates.push({
         section: "Evidence",

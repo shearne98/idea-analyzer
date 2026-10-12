@@ -55,6 +55,21 @@ describe("normalized idea v1 contract", () => {
     expect(result.extraSections).toEqual([]);
   });
 
+  it("accepts a frontmatter title as metadata rather than an extra v1 section", () => {
+    const markdown = `---
+idea_analyzer_schema_version: 1
+title: "Self-service basketball court"
+---
+
+${validNormalizedMarkdown.replace("idea_analyzer_schema_version: 1\n\n", "")}`;
+
+    const result = validateNormalizedIdeaMarkdown(markdown);
+
+    expect(result.valid).toBe(true);
+    expect(result.parsed?.extraSections).toEqual([]);
+    expect(result.warnings).not.toContainEqual(expect.objectContaining({ code: "extra_section" }));
+  });
+
   it("reports missing required v1 sections", () => {
     const invalid = validNormalizedMarkdown.replace(
       /# Payer\n[\s\S]*?\n\n# Current Alternative/,

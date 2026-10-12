@@ -124,6 +124,33 @@ describe("idea intake contract", () => {
     );
   });
 
+  it("does not treat a product payment mechanism as validation evidence", () => {
+    const result = createIdeaIntake({
+      normalizedIdea: specificNormalizedMarkdown.replace(
+        "Two consultants described follow-up admin as a weekly bottleneck and already paste notes into AI tools.",
+        "No evidence yet."
+      ),
+      sourceMaterial:
+        "Players pay via an app and access the court automatically, with no permanent on-site staff.",
+    });
+
+    expect(result.proposedUpdates).not.toContainEqual(expect.objectContaining({ field: "evidence" }));
+  });
+
+  it("uses customer payment or research signals as evidence", () => {
+    const result = createIdeaIntake({
+      normalizedIdea: specificNormalizedMarkdown.replace(
+        "Two consultants described follow-up admin as a weekly bottleneck and already paste notes into AI tools.",
+        "No evidence yet."
+      ),
+      sourceMaterial: "A prospective customer offered to pay £50 for a manual pilot.",
+    });
+
+    expect(result.proposedUpdates).toContainEqual(
+      expect.objectContaining({ field: "evidence", source: "source_material" })
+    );
+  });
+
   it("renders proposed updates while preserving unrelated normalized content", () => {
     const updates = createIdeaIntake({
       normalizedIdea: specificNormalizedMarkdown,

@@ -82,6 +82,16 @@ describe("refresh-normalized contract", () => {
     expect(result.questions).toEqual([]);
   });
 
+  it("does not classify payment mechanics as validation evidence", () => {
+    const result = createRefreshNormalized({
+      existingNormalizedIdea: matureNormalizedMarkdown,
+      updatedSourceMaterial:
+        "Players pay via an app and access the court automatically, with no permanent on-site staff.",
+    });
+
+    expect(result.proposedUpdates).not.toContainEqual(expect.objectContaining({ field: "evidence" }));
+  });
+
   it("reports conflicting source information as warnings and questions instead of overwriting", () => {
     const result = createRefreshNormalized({
       existingNormalizedIdea: matureNormalizedMarkdown,
