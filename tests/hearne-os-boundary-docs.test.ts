@@ -71,6 +71,16 @@ describe("Hearne OS file workflow boundary docs", () => {
     expect(readme).toMatch(/validateExternalExecutionResponse[\s\S]*malformed or incomplete responses/i);
   });
 
+  it("documents the completed Hearne OS workflow and verification contract", async () => {
+    const readme = await readReadme();
+
+    expect(readme).toMatch(/Hearne OS workflow guide/i);
+    expect(readme).toMatch(/check-readiness[\s\S]*intake[\s\S]*refresh-normalized[\s\S]*analyze[\s\S]*full-run/i);
+    expect(readme).toMatch(/#31[\s\S]*Founder Profile/i);
+    expect(readme).toMatch(/#32[\s\S]*parent PRD/i);
+    expect(readme).toMatch(/npm test[\s\S]*npm run lint[\s\S]*npm run build[\s\S]*git diff --check/i);
+  });
+
   it("uses project glossary terms for the documented boundary", async () => {
     const readme = await readReadme();
 
