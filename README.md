@@ -238,6 +238,16 @@ Final analysis reads only the explicit `--input` normalized idea and `--founder-
 
 The command fails clearly for missing or empty normalized input, readiness blockers, missing or empty Founder Profile content, unsupported configuration, local model/analysis failures, and clarification responses that are not completed analyses. It writes final artifacts only after both outputs are prepared, so failed runs do not leave misleading new analysis files.
 
+## Hearne OS workflow guide
+
+For a complete workspace-level walkthrough, see [Hearne OS's `explore-business-idea` workflow guide](https://github.com/shearne98/hearne-os/blob/main/workflows/explore-business-idea/README.md). That guide documents the caller-owned sequence: `check-readiness`, approval-safe `intake`, approval-safe `refresh-normalized`, `analyze`, and approval-pausing `full-run`.
+
+Idea Analyzer defines the normalized-idea schema, readiness, intake, refresh, analysis, rendering, and external packet/response validation contracts. Hearne OS selects one workspace, owns its folder layout and run history, keeps `source.md` read-only, and applies a persisted proposal only after explicit approval. No caller needs to mirror a Hearne OS folder structure: pass explicit files or packets to the relevant Idea Analyzer contract.
+
+For an external backend, Hearne OS builds an Idea Analyzer packet, sends it to Hermes/Codex (or another executor), and returns the response envelope to `validateExternalExecutionResponse`. The website and local-model routes remain supported adapters over the same analyzer core and canonical response contract; they do not make Hermes/Codex a dependency of Idea Analyzer.
+
+Issue [#31](https://github.com/shearne98/idea-analyzer/issues/31) implemented explicit Founder Profile handling. Issue [#32](https://github.com/shearne98/idea-analyzer/issues/32) is the parent PRD for the workflow work. Historical packet, response, validation, readiness, and debug artifacts are caller-selected and may contain private inputs; treat them as private run history.
+
 ## Development evaluation tools
 
 The collapsed **Development controls** and **Development output tools** are for comparing Idea analysis run quality while building the analyzer. They are not part of the intended final customer experience.
@@ -282,4 +292,5 @@ Run these before committing analyzer or documentation changes:
 npm test
 npm run lint
 npm run build
+git diff --check
 ```
